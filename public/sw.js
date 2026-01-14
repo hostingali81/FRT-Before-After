@@ -2,7 +2,7 @@
 // Service Worker for FRT-Before After
 // ============================================
 
-const CACHE_NAME = 'bef-aft-v4';
+const CACHE_NAME = 'bef-aft-v5';
 const ASSETS = [
     '/',
     '/index.html',
@@ -42,11 +42,34 @@ self.addEventListener('activate', (event) => {
     self.clients.claim();
 });
 
-// Fetch Event: Stale-while-revalidate or Cache First
+// Fetch Event: Mixed Strategy
 self.addEventListener('fetch', (event) => {
-    event.respondWith(
-        caches.match(event.request).then((response) => {
-            return response || fetch(event.request);
-        })
-    );
+    // Strategy for HTML/Navigation: Network First (Freshness is critical)
+    if (event.request.mode === 'navigate') {
+        event.respondWith(
+            fetch(event.request)
+                .then((networkResponse) => {
+                    return caches.open(CACHE_NAME).then((cache) => {
+                        cache.put(event.request, networkResponse.clone());
+                        return networkResponse;
+                    });
+                })
+                .catch(() => {
+                    return caches.match(event.request);
+                })
+        );
+    } else {
+        // Strategy for Assets (Styles, Scripts, Images): Cache First (Performance)
+        event.respondWith(
+            caches.match(event.request).then((cachedResponse) => {
+                if (cachedResponse) return cachedResponse;
+                return fetch(event.request).then((networkResponse) => {
+                    return caches.open(CACHE_NAME).then((cache) => {
+                        cache.put(event.request, networkResponse.clone());
+                        return networkResponse;
+                    });
+                });
+            })
+        );
+    }
 });

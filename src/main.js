@@ -240,6 +240,7 @@ function renderHTML() {
         <!-- Action Buttons -->
         <div class="controls">
           <button class="btn btn--secondary" id="swap-btn">🔄 Swap</button>
+          <button class="btn btn--primary" id="share-btn">🔗 Share</button>
           <button class="btn btn--primary" id="download-btn">💾 Download</button>
           <button class="btn btn--accent" id="reset-btn">♻️ Reset</button>
         </div>
