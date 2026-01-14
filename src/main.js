@@ -45,6 +45,7 @@ const state = {
 // ============================================
 const elements = {
   app: document.querySelector('#app'),
+  installBtn: null,
   beforeInput: null,
   afterInput: null,
   beforePreview: null,
@@ -56,6 +57,7 @@ const elements = {
   comparisonImageAfter: null,
   swapBtn: null,
   resetBtn: null,
+  shareBtn: null,
   downloadBtn: null,
 
   // Tools
@@ -88,7 +90,42 @@ function initApp() {
   renderHTML()
   cacheElements()
   attachEventListeners()
+  setupPWA()
   console.log('📱 App Initialized: Object-based Arrows Mode')
+}
+
+// ============================================
+// PWA INSTALL LOGIC
+// ============================================
+let deferredPrompt;
+
+function setupPWA() {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    // Prevent Chrome 67 and earlier from automatically showing the prompt
+    e.preventDefault();
+    // Stash the event so it can be triggered later.
+    deferredPrompt = e;
+    // Update UI to notify the user they can add to home screen
+    if (elements.installBtn) {
+      elements.installBtn.style.display = 'block';
+
+      elements.installBtn.addEventListener('click', () => {
+        // Hide our user interface that shows our A2HS button
+        elements.installBtn.style.display = 'none';
+        // Show the prompt
+        deferredPrompt.prompt();
+        // Wait for the user to respond to the prompt
+        deferredPrompt.userChoice.then((choiceResult) => {
+          if (choiceResult.outcome === 'accepted') {
+            console.log('User accepted the A2HS prompt');
+          } else {
+            console.log('User dismissed the A2HS prompt');
+          }
+          deferredPrompt = null;
+        });
+      });
+    }
+  });
 }
 
 // ============================================
@@ -560,8 +597,8 @@ function setupCanvasInteraction(canvas, side) {
     state.interaction.isDragging = false
     state.interaction.dragMode = null
     state.interaction.initialArrow = null
-    canvas.style.cursor = 'default' // Reset or keep consistent?
-    // Actually, we should trigger a hover check again if possible, or just let the next move handle it.
+    canvas.style.cursor = 'default'
+    redrawAll() // Re-draw to show handles again
   }
 
   canvas.addEventListener('mousedown', handleDown)
@@ -691,8 +728,8 @@ function drawArrow(ctx, arrow, isSelected) {
   // Reset Shadow for handles
   ctx.shadowBlur = 0
 
-  // Draw Handles if selected
-  if (isSelected) {
+  // Draw Handles if selected AND NOT DRAGGING
+  if (isSelected && !state.interaction.isDragging) {
     drawHandle(ctx, start) // Tail
     drawHandle(ctx, end)   // Head
   }
@@ -873,23 +910,61 @@ async function downloadComparison() {
     ctx.restore()
 
     // Draw Arrows
-    function renderArr(sideArgs, offsetX) {
-      state.edits[sideArgs].arrows.forEach(arrow => {
-        // Coordinate Space Mapping
-        const screenCanvas = sideArgs === 'before' ? elements.canvasBefore : elements.canvasAfter
-        const sW = screenCanvas.width
-        const sH = screenCanvas.height
-        const tW = sideArgs === 'before' ? wB : wA
-        const tH = h
+    function renderArr(sideArgs, outputX) {
+      const arrowList = state.edits[sideArgs].arrows
+      if (!arrowList || arrowList.length === 0) return
 
-        // Map normalized coordinates 
-        // Wait, arrows are stored in SCREEN coords of the canvas at that moment.
-        // We need to map proportionally.
-        const p1 = { x: (arrow.start.x / sW) * tW + offsetX, y: (arrow.start.y / sH) * tH + border }
-        const p2 = { x: (arrow.end.x / sW) * tW + offsetX, y: (arrow.end.y / sH) * tH + border }
+      // Get visual mapping stats
+      const imgEl = sideArgs === 'before' ? elements.comparisonImageBefore : elements.comparisonImageAfter
+      const canvasEl = sideArgs === 'before' ? elements.canvasBefore : elements.canvasAfter
+
+      // Calculate where the image is actually displayed within the canvas (handling object-fit: contain)
+      // Visual Aspect Ratio
+      const imgAspect = imgEl.naturalWidth / imgEl.naturalHeight
+      const canvasAspect = canvasEl.width / canvasEl.height
+
+      let renderW, renderH, offsetX, offsetY
+
+      if (canvasAspect > imgAspect) {
+        // Canvas is wider than image (Pillarbox - empty sides)
+        renderH = canvasEl.height
+        renderW = renderH * imgAspect
+        offsetX = (canvasEl.width - renderW) / 2
+        offsetY = 0
+      } else {
+        // Canvas is taller than image (Letterbox - empty top/bottom)
+        renderW = canvasEl.width
+        renderH = renderW / imgAspect
+        offsetX = 0
+        offsetY = (canvasEl.height - renderH) / 2
+      }
+
+      // Output Target Dimensions
+      const targetW = sideArgs === 'before' ? wB : wA
+      const targetH = h
+
+      arrowList.forEach(arrow => {
+        // Normalize coordinates relative to the ACTUAL IMAGE, not just the canvas
+        // (x - offsetX) / renderW  = normalized position [0..1] relative to image content
+
+        function mapCoord(c) {
+          const normX = (c.x - offsetX) / renderW
+          const normY = (c.y - offsetY) / renderH
+
+          return {
+            x: normX * targetW + outputX,
+            y: normY * targetH + border
+          }
+        }
+
+        const p1 = mapCoord(arrow.start)
+        const p2 = mapCoord(arrow.end)
+
+        // Skip arrows that are completely outside the image area? 
+        // No, let them draw properly (might get clipped or clamped)
 
         // Draw
-        const scaledSize = arrow.size * (tH / sH)
+        const scaledSize = arrow.size * (targetH / renderH) // Scale thickness
         const tempArrow = { start: p1, end: p2, color: arrow.color, size: scaledSize }
         drawArrow(ctx, tempArrow, false) // False = no handles
       })

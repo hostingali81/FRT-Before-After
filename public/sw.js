@@ -2,7 +2,7 @@
 // Service Worker for FRT-Before After
 // ============================================
 
-const CACHE_NAME = 'bef-aft-v3';
+const CACHE_NAME = 'bef-aft-v4';
 const ASSETS = [
     '/',
     '/index.html',
