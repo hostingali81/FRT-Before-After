@@ -265,6 +265,7 @@ function cacheElements() {
   elements.comparisonImageAfter = document.getElementById('comparison-after')
   elements.swapBtn = document.getElementById('swap-btn')
   elements.resetBtn = document.getElementById('reset-btn')
+  elements.shareBtn = document.getElementById('share-btn')
   elements.downloadBtn = document.getElementById('download-btn')
   elements.editingToolbar = document.querySelector('.editing-toolbar')
   elements.controls = document.querySelector('.controls')
@@ -307,6 +308,7 @@ function attachEventListeners() {
   // Controls
   elements.swapBtn.addEventListener('click', swapImages)
   elements.resetBtn.addEventListener('click', resetApp)
+  if (elements.shareBtn) elements.shareBtn.addEventListener('click', shareComparison)
   elements.downloadBtn.addEventListener('click', downloadComparison)
 
   // Keyboard Shortcuts
