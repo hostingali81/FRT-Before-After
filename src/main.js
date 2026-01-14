@@ -109,7 +109,7 @@ function renderHTML() {
         <div class="upload-area" id="before-upload-area">
           <div class="upload-icon">📷</div>
           <p class="upload-text">Upload Before</p>
-          <input type="file" id="before-input" class="upload-input" accept="image/*" capture="environment" />
+          <input type="file" id="before-input" class="upload-input" accept="image/*" />
           <img id="before-preview" class="upload-preview" />
         </div>
       </div>
