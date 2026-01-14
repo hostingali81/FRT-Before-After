@@ -136,6 +136,7 @@ function renderHTML() {
     <!-- Header -->
     <header class="header">
       <h1 class="header__title">Before & After</h1>
+      <button id="install-btn" class="btn btn--sm btn--primary" style="display: none; margin-left: auto;">⬇️ Install App</button>
     </header>
 
     <!-- Upload Section -->
@@ -254,6 +255,7 @@ function renderHTML() {
 // ============================================
 function cacheElements() {
   elements.app = document.querySelector('#app')
+  elements.installBtn = document.querySelector('#install-btn')
   elements.beforeInput = document.getElementById('before-input')
   elements.afterInput = document.getElementById('after-input')
   elements.beforePreview = document.getElementById('before-preview')
@@ -873,141 +875,172 @@ function resetApp() {
   if (confirm("Start over?")) location.reload()
 }
 
-// Download - Updated for new arrows
+// Generate Blob Helper
+async function generateComparisonBlob() {
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')
+  const beforeImg = new Image(); beforeImg.src = state.beforeImage
+  const afterImg = new Image(); afterImg.src = state.afterImage
+
+  await Promise.all([
+    new Promise(r => beforeImg.onload = r),
+    new Promise(r => afterImg.onload = r)
+  ])
+
+  const h = Math.max(beforeImg.height, afterImg.height)
+  const scaleB = h / beforeImg.height
+  const scaleA = h / afterImg.height
+  const wB = beforeImg.width * scaleB
+  const wA = afterImg.width * scaleA
+  const gap = h * 0.01
+  const border = gap * 2
+
+  canvas.width = wB + wA + gap + border * 2
+  canvas.height = h + border * 2
+
+  ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  // Draw Images
+  ctx.save()
+  ctx.filter = elements.comparisonImageBefore.style.filter
+  ctx.drawImage(beforeImg, border, border, wB, h)
+  ctx.restore()
+
+  ctx.save()
+  ctx.filter = elements.comparisonImageAfter.style.filter
+  ctx.drawImage(afterImg, border + wB + gap, border, wA, h)
+  ctx.restore()
+
+  // Draw Arrows (using shared logic if possible, or copied fixed logic)
+  function renderArr(sideArgs, outputX) {
+    const arrowList = state.edits[sideArgs].arrows
+    if (!arrowList || arrowList.length === 0) return
+
+    const imgEl = sideArgs === 'before' ? elements.comparisonImageBefore : elements.comparisonImageAfter
+    const canvasEl = sideArgs === 'before' ? elements.canvasBefore : elements.canvasAfter
+
+    // Correct Aspect Ratio Mapping
+    const imgAspect = imgEl.naturalWidth / imgEl.naturalHeight
+    const canvasAspect = canvasEl.width / canvasEl.height
+
+    let renderW, renderH, offsetX, offsetY
+
+    if (canvasAspect > imgAspect) {
+      // Canvas is wider than image (Pillarbox - empty sides)
+      renderH = canvasEl.height
+      renderW = renderH * imgAspect
+      offsetX = (canvasEl.width - renderW) / 2
+      offsetY = 0
+    } else {
+      // Canvas is taller than image (Letterbox - empty top/bottom)
+      renderW = canvasEl.width
+      renderH = renderW / imgAspect
+      offsetX = 0
+      offsetY = (canvasEl.height - renderH) / 2
+    }
+
+    const targetW = sideArgs === 'before' ? wB : wA
+    const targetH = h
+
+    arrowList.forEach(arrow => {
+      // Normalize coordinates relative to the ACTUAL IMAGE, not just the canvas
+
+      function mapCoord(c) {
+        const normX = (c.x - offsetX) / renderW
+        const normY = (c.y - offsetY) / renderH
+
+        return {
+          x: normX * targetW + outputX,
+          y: normY * targetH + border
+        }
+      }
+
+      const p1 = mapCoord(arrow.start)
+      const p2 = mapCoord(arrow.end)
+
+      const scaledSize = arrow.size * (targetH / renderH) // Scale thickness
+      const tempArrow = { start: p1, end: p2, color: arrow.color, size: scaledSize }
+      drawArrow(ctx, tempArrow, false) // False = no handles
+    })
+  }
+
+  renderArr('before', border)
+  renderArr('after', border + wB + gap)
+
+  // Badges
+  const fontSize = h * 0.05
+  ctx.font = `bold ${fontSize}px sans-serif`
+  ctx.textAlign = 'center'
+
+  const badgeY = canvas.height - border - fontSize
+
+  // Badge BG
+  function drawBadge(text, x, y) {
+    const tw = ctx.measureText(text).width + 40
+    const th = fontSize + 20
+    ctx.fillStyle = '#dc2626'
+    ctx.beginPath(); ctx.roundRect(x - tw / 2, y - th / 2, tw, th, 15); ctx.fill()
+    ctx.fillStyle = 'white'
+    ctx.fillText(text, x, y + fontSize * 0.3)
+  }
+
+  drawBadge('BEFORE', border + wB / 2, badgeY)
+  drawBadge('AFTER', border + wB + gap + wA / 2, badgeY)
+
+  return new Promise((resolve) => {
+    canvas.toBlob(blob => {
+      resolve(blob)
+    }, 'image/jpeg', 0.95)
+  })
+}
+
+// Download Handler
 async function downloadComparison() {
+  const originalText = elements.downloadBtn.innerText
   elements.downloadBtn.innerText = '⏳ Processing...'
 
   try {
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')
-    const beforeImg = new Image(); beforeImg.src = state.beforeImage
-    const afterImg = new Image(); afterImg.src = state.afterImage
-
-    await Promise.all([
-      new Promise(r => beforeImg.onload = r),
-      new Promise(r => afterImg.onload = r)
-    ])
-
-    const h = Math.max(beforeImg.height, afterImg.height)
-    const scaleB = h / beforeImg.height
-    const scaleA = h / afterImg.height
-    const wB = beforeImg.width * scaleB
-    const wA = afterImg.width * scaleA
-    const gap = h * 0.01
-    const border = gap * 2
-
-    canvas.width = wB + wA + gap + border * 2
-    canvas.height = h + border * 2
-
-    ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-    // Draw Images
-    ctx.save()
-    ctx.filter = elements.comparisonImageBefore.style.filter
-    ctx.drawImage(beforeImg, border, border, wB, h)
-    ctx.restore()
-
-    ctx.save()
-    ctx.filter = elements.comparisonImageAfter.style.filter
-    ctx.drawImage(afterImg, border + wB + gap, border, wA, h)
-    ctx.restore()
-
-    // Draw Arrows
-    function renderArr(sideArgs, outputX) {
-      const arrowList = state.edits[sideArgs].arrows
-      if (!arrowList || arrowList.length === 0) return
-
-      // Get visual mapping stats
-      const imgEl = sideArgs === 'before' ? elements.comparisonImageBefore : elements.comparisonImageAfter
-      const canvasEl = sideArgs === 'before' ? elements.canvasBefore : elements.canvasAfter
-
-      // Calculate where the image is actually displayed within the canvas (handling object-fit: contain)
-      // Visual Aspect Ratio
-      const imgAspect = imgEl.naturalWidth / imgEl.naturalHeight
-      const canvasAspect = canvasEl.width / canvasEl.height
-
-      let renderW, renderH, offsetX, offsetY
-
-      if (canvasAspect > imgAspect) {
-        // Canvas is wider than image (Pillarbox - empty sides)
-        renderH = canvasEl.height
-        renderW = renderH * imgAspect
-        offsetX = (canvasEl.width - renderW) / 2
-        offsetY = 0
-      } else {
-        // Canvas is taller than image (Letterbox - empty top/bottom)
-        renderW = canvasEl.width
-        renderH = renderW / imgAspect
-        offsetX = 0
-        offsetY = (canvasEl.height - renderH) / 2
-      }
-
-      // Output Target Dimensions
-      const targetW = sideArgs === 'before' ? wB : wA
-      const targetH = h
-
-      arrowList.forEach(arrow => {
-        // Normalize coordinates relative to the ACTUAL IMAGE, not just the canvas
-        // (x - offsetX) / renderW  = normalized position [0..1] relative to image content
-
-        function mapCoord(c) {
-          const normX = (c.x - offsetX) / renderW
-          const normY = (c.y - offsetY) / renderH
-
-          return {
-            x: normX * targetW + outputX,
-            y: normY * targetH + border
-          }
-        }
-
-        const p1 = mapCoord(arrow.start)
-        const p2 = mapCoord(arrow.end)
-
-        // Skip arrows that are completely outside the image area? 
-        // No, let them draw properly (might get clipped or clamped)
-
-        // Draw
-        const scaledSize = arrow.size * (targetH / renderH) // Scale thickness
-        const tempArrow = { start: p1, end: p2, color: arrow.color, size: scaledSize }
-        drawArrow(ctx, tempArrow, false) // False = no handles
-      })
-    }
-
-    renderArr('before', border)
-    renderArr('after', border + wB + gap)
-
-    // Badges
-    const fontSize = h * 0.05
-    ctx.font = `bold ${fontSize}px sans-serif`
-    ctx.textAlign = 'center'
-
-    const badgeY = canvas.height - border - fontSize
-
-    // Badge BG
-    function drawBadge(text, x, y) {
-      const tw = ctx.measureText(text).width + 40
-      const th = fontSize + 20
-      ctx.fillStyle = '#dc2626'
-      ctx.beginPath(); ctx.roundRect(x - tw / 2, y - th / 2, tw, th, 15); ctx.fill()
-      ctx.fillStyle = 'white'
-      ctx.fillText(text, x, y + fontSize * 0.3)
-    }
-
-    drawBadge('BEFORE', border + wB / 2, badgeY)
-    drawBadge('AFTER', border + wB + gap + wA / 2, badgeY)
-
-    // Save
-    canvas.toBlob(blob => {
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.download = 'collage.png'
-      a.click()
-      elements.downloadBtn.innerText = '💾 Download'
-    })
-
+    const blob = await generateComparisonBlob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `before-after-${Date.now()}.jpg`
+    a.click()
+    URL.revokeObjectURL(url)
   } catch (e) {
-    alert('Error: ' + e.message)
-    elements.downloadBtn.innerText = '💾 Download'
+    console.error(e)
+    alert('Error generating image: ' + e.message)
+  } finally {
+    elements.downloadBtn.innerText = originalText
+  }
+}
+
+// Share Handler
+async function shareComparison() {
+  if (!navigator.share) {
+    alert('Web Share API is not supported in this browser.')
+    return
+  }
+
+  const originalText = elements.shareBtn.innerText
+  elements.shareBtn.innerText = '⏳...'
+
+  try {
+    const blob = await generateComparisonBlob()
+    const file = new File([blob], 'before-after.jpg', { type: 'image/jpeg' })
+
+    await navigator.share({
+      title: 'Before & After Comparison',
+      text: 'Check out this professional before & after comparison!',
+      files: [file]
+    })
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      console.error('Share failed:', err)
+      alert('Share failed: ' + err.message)
+    }
+  } finally {
+    elements.shareBtn.innerText = originalText
   }
 }
 
