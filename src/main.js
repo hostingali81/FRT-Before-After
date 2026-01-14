@@ -610,10 +610,30 @@ function drawArrow(ctx, arrow, isSelected) {
   const { start, end, color, size } = arrow
 
   // Draw Arrow logic
-  const headLength = Math.max(15, size * 3)
+  // Calculate Arrowhead dimensions first to determine where the line should stop
+  // 'Ek dam sharp' means narrower angle and longer head
+  const headAngle = Math.PI / 18  // e.g. 10 degrees
+  const headSize = Math.max(30, size * 6) // Longer head
+  const backDepth = headSize * 0.2 // Depth of the concavity
+
+  // We need to stop the line (body) before it reaches the tip, otherwise the thick line
+  // renders *under* the sharp tip and ruins the pointiness (makes it look blunt/rounded).
+  // We stop it at the "concave" point or slightly further back.
+  // The concave point is at distance (headSize - backDepth) from the tip.
+  const lineStopDist = headSize - backDepth
+
   const dx = end.x - start.x
   const dy = end.y - start.y
   const angle = Math.atan2(dy, dx)
+  const length = Math.sqrt(dx * dx + dy * dy)
+
+  // Calculate new end point for the line shaft
+  // Ensure line doesn't go negative if arrow is shorter than head (clamp)
+  const safeLength = Math.max(0, length - lineStopDist)
+  const lineEnd = {
+    x: start.x + (Math.cos(angle) * safeLength),
+    y: start.y + (Math.sin(angle) * safeLength)
+  }
 
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
@@ -631,9 +651,10 @@ function drawArrow(ctx, arrow, isSelected) {
   ctx.strokeStyle = color
   ctx.fillStyle = color
 
+  // Draw Line (Shaft) - Stops at base of head
   ctx.beginPath()
   ctx.moveTo(start.x, start.y)
-  ctx.lineTo(end.x, end.y)
+  ctx.lineTo(lineEnd.x, lineEnd.y) // Use shortened end
   ctx.stroke()
 
   // Draw Dashed Spine if selected (To help see the path)
@@ -644,22 +665,22 @@ function drawArrow(ctx, arrow, isSelected) {
     ctx.setLineDash([4, 4])
     ctx.beginPath()
     ctx.moveTo(start.x, start.y)
-    ctx.lineTo(end.x, end.y)
+    ctx.lineTo(end.x, end.y) // Spine goes all the way for visual continuity? Or match shaft? 
+    // Let's Keep spine all the way so user knows where the actual endpoint is (the tip)
     ctx.stroke()
     ctx.restore()
   }
 
   // Arrowhead (Sharper, more professional)
-  // 'Ek dam sharp' means narrower angle and longer head
-  const headAngle = Math.PI / 18  // e.g. 10 degrees - Very narrow
-  const headSize = Math.max(30, size * 6) // Longer head
+  // Already defined constants above
+
 
   ctx.beginPath()
   ctx.moveTo(end.x, end.y)
   // Left point
   ctx.lineTo(end.x - headSize * Math.cos(angle - headAngle), end.y - headSize * Math.sin(angle - headAngle))
   // Slightly concave back to make it look like a spike/thorn
-  const backDepth = headSize * 0.2 // Depth of the concavity
+  // backDepth is already calculated above
   ctx.lineTo(end.x - (headSize - backDepth) * Math.cos(angle), end.y - (headSize - backDepth) * Math.sin(angle))
   // Right point
   ctx.lineTo(end.x - headSize * Math.cos(angle + headAngle), end.y - headSize * Math.sin(angle + headAngle))
