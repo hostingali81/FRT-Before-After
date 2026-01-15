@@ -255,8 +255,10 @@ body {
   overflow: hidden;
   box-shadow: var(--shadow-lg);
   aspect-ratio: auto;
-  min-height: 300px;
-  /* Ensure visibility */
+  height: auto;
+  /* Shrink to fit content */
+  align-items: flex-start;
+  /* Prevent stretching if one is shorter? No, stretch is default for flex row. keep default or stretch */
 }
 
 .collage-side {
@@ -265,14 +267,16 @@ body {
   overflow: hidden;
   display: flex;
   /* Center content */
+  /* Center content */
   align-items: center;
   justify-content: center;
-  background: #0f172a;
-  /* Slate 900 for dark extraction feeling */
+  background: white;
+  /* Match Download */
 }
 
 .collage-side:first-child {
-  border-right: 1px solid rgba(255, 255, 255, 0.2);
+  border-right: 2px solid #e2e8f0;
+  /* Visible separator */
 }
 
 .collage-image {
@@ -288,31 +292,47 @@ body {
   bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(8px);
+  background: #dc2626;
   color: white;
-  padding: 6px 16px;
-  border-radius: 99px;
-  font-size: 0.8rem;
-  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 4px;
+  /* Sharp corners like download */
+  font-size: 0.75rem;
+  /* Slightly smaller to match visual scale */
+  font-weight: bold;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  z-index: 10;
-  pointer-events: none;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 100;
+  pointer-events: auto;
+  cursor: grab;
+  /* Removed border to match download */
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  user-select: none;
+  touch-action: none;
+}
+
+.collage-badge:active {
+  cursor: grabbing;
 }
 
 /* Vertical Layout Mode */
 .collage-container.layout-vertical {
   flex-direction: column !important;
   height: auto !important;
-  /* Allow growing */
+  min-height: 0 !important;
+  /* Force reset */
+}
+
+.collage-container.layout-vertical .collage-side {
+  flex: none !important;
+  /* Prevent ANY stretching */
+  width: 100%;
+  height: auto !important;
 }
 
 .collage-container.layout-vertical .collage-side:first-child {
   border-right: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 2px solid #e2e8f0;
 }
 
 /* Canvas Overlay */
@@ -447,57 +467,110 @@ body.arrow-mode .drawing-canvas {
 }
 
 /* Controls (Bottom) */
+/* Controls (Bottom) */
 .controls {
-  justify-content: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 1.5rem;
   margin-top: 2rem;
+  width: 100%;
+  padding: 1rem;
+  background: white;
+  border-radius: 100px;
+  border: 1px solid var(--slate-200);
+  box-shadow: var(--shadow-lg);
+}
+
+.control-group {
+  display: flex;
+  gap: 0.75rem;
+}
+
+@media (max-width: 768px) {
+  .controls {
+    flex-direction: column;
+    border-radius: var(--radius-xl);
+    gap: 1rem;
+    padding: 1.5rem;
+  }
+
+  .control-group {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .btn {
+    flex: 1;
+    /* Stretch buttons on mobile */
+    justify-content: center;
+  }
 }
 
 /* Buttons */
+/* Buttons */
 .btn {
-  padding: 0.875rem 2rem;
-  border-radius: var(--radius-md);
+  padding: 0.75rem 1.5rem;
+  border-radius: 100px;
+  /* Pill shape */
   font-weight: 600;
-  border: none;
+  border: 1px solid transparent;
   cursor: pointer;
-  transition: transform 0.1s, box-shadow 0.2s;
-  font-size: 1rem;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
 }
 
-.btn--sm {
-  padding: 0.5rem 1rem;
-  font-size: 0.875rem;
+.btn:active {
+  transform: scale(0.96);
 }
 
 .btn--primary {
-  background: var(--primary);
+  background: linear-gradient(135deg, var(--indigo-600) 0%, var(--indigo-500) 100%);
   color: white;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+  border: none;
 }
 
 .btn--primary:hover {
-  background: var(--primary-hover);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  filter: brightness(1.1);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.35);
+  transform: translateY(-1px);
 }
 
 .btn--secondary {
   background: white;
-  border: 1px solid var(--slate-300);
+  border: 1px solid var(--slate-200);
   color: var(--slate-700);
+  box-shadow: var(--shadow-sm);
 }
 
 .btn--secondary:hover {
-  border-color: var(--slate-400);
+  border-color: var(--slate-300);
   background: var(--slate-50);
+  color: var(--slate-900);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
 
-.btn--danger {
-  background: #fee2e2;
+.btn--accent {
+  background: transparent;
+  color: var(--slate-500);
+  border: 1px dashed var(--slate-300);
+}
+
+.btn--accent:hover {
   color: #ef4444;
+  border-color: #fca5a5;
+  background: #fef2f2;
 }
 
-.btn--danger:hover {
-  background: #fecaca;
+.icon {
+  font-size: 1.1em;
 }
 
 /* Filter Controls */

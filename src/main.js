@@ -32,11 +32,13 @@ const state = {
   edits: {
     before: {
       arrows: [], // { start: {x,y}, end: {x,y}, color, size }
-      filters: { brightness: 100, contrast: 100, saturate: 100 }
+      filters: { brightness: 100, contrast: 100, saturate: 100 },
+      badge: { x: 0.5, y: 0.9 } // Normalized position (0-1)
     },
     after: {
       arrows: [],
-      filters: { brightness: 100, contrast: 100, saturate: 100 }
+      filters: { brightness: 100, contrast: 100, saturate: 100 },
+      badge: { x: 0.5, y: 0.9 }
     }
   }
 }
@@ -81,7 +83,13 @@ const elements = {
   saturateSlider: null,
   brightnessVal: null,
   contrastVal: null,
-  saturateVal: null
+  brightnessVal: null,
+  contrastVal: null,
+  saturateVal: null,
+
+  // Badges
+  badgeBefore: null,
+  badgeAfter: null
 }
 
 // ============================================
@@ -197,7 +205,9 @@ function renderHTML() {
            </div>
            <div class="size-control">
               <span class="size-label">Size</span>
+              <button class="btn-size" id="btn-size-minus">-</button>
               <input type="range" id="arrow-size" min="5" max="25" value="10">
+              <button class="btn-size" id="btn-size-plus">+</button>
            </div>
          </div>
          <div class="tool-hint">Select a side (Before/After) then click Add Arrow. Drag blue handles to adjust.</div>
@@ -283,6 +293,8 @@ function cacheElements() {
   elements.btnAddArrow = document.getElementById('btn-add-arrow')
   elements.btnDeleteArrow = document.getElementById('btn-delete-arrow')
   elements.arrowSize = document.getElementById('arrow-size')
+  elements.btnSizeMinus = document.getElementById('btn-size-minus')
+  elements.btnSizePlus = document.getElementById('btn-size-plus')
   elements.colorBtns = document.querySelectorAll('.color-btn')
 
   elements.filterControls = document.getElementById('filter-controls')
@@ -298,6 +310,9 @@ function cacheElements() {
   elements.contrastVal = document.getElementById('contrast-val')
   elements.saturateVal = document.getElementById('saturate-val')
   elements.btnResetFilters = document.getElementById('btn-reset-filters')
+
+  elements.badgeBefore = elements.sideBefore.querySelector('.collage-badge')
+  elements.badgeAfter = elements.sideAfter.querySelector('.collage-badge')
 }
 
 // ============================================
@@ -341,6 +356,22 @@ function attachEventListeners() {
     updateSelectedArrow()
   })
 
+  elements.btnSizeMinus.addEventListener('click', () => {
+    let val = parseInt(elements.arrowSize.value)
+    val = Math.max(5, val - 1)
+    elements.arrowSize.value = val
+    state.arrowSettings.size = val
+    updateSelectedArrow()
+  })
+
+  elements.btnSizePlus.addEventListener('click', () => {
+    let val = parseInt(elements.arrowSize.value)
+    val = Math.min(25, val + 1)
+    elements.arrowSize.value = val
+    state.arrowSettings.size = val
+    updateSelectedArrow()
+  })
+
   elements.colorBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       elements.colorBtns.forEach(b => b.classList.remove('active'))
@@ -365,8 +396,89 @@ function attachEventListeners() {
       resizeCanvas(elements.canvasBefore)
       resizeCanvas(elements.canvasAfter)
       redrawAll()
+      updateBadgePositions()
     })
   })
+
+  // Badge Interaction
+  setupBadgeDrag(elements.badgeBefore, 'before')
+  setupBadgeDrag(elements.badgeAfter, 'after')
+}
+function updateBadgePositions() {
+  // Sync UI Badges with State (useful on resize)
+  const setPos = (el, pos, container) => {
+    const w = container.clientWidth
+    const h = container.clientHeight
+    el.style.left = (pos.x * w) + 'px'
+    el.style.top = (pos.y * h) + 'px'
+    el.style.bottom = 'auto' // Override default CSS
+    el.style.transform = 'translate(-50%, -50%)' // Center anchor
+  }
+
+  // Only update if state is set (initially might rely on CSS)
+  // But better to initialize state to CSS default or force one.
+  // Let's force initialized position on first drag or load?
+  // Actually, let's keep CSS default until dragged.
+  // Check if we have touched logic yet
+}
+
+function setupBadgeDrag(el, side) {
+  let isDragging = false
+
+  const onStart = (e) => {
+    isDragging = true
+    e.preventDefault()
+    e.stopPropagation()
+    el.style.cursor = 'grabbing'
+  }
+
+  const onMove = (e) => {
+    if (!isDragging) return
+    e.preventDefault()
+
+    const container = side === 'before' ? elements.sideBefore : elements.sideAfter
+    const rect = container.getBoundingClientRect()
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY
+
+    // Calculate normalized position relative to CONTAINER (not image content, for UI simplicity)
+    // Or should it be image content? If image content, it stays with image features.
+    // User asked "adjust position". Image content is safer for responsive layout.
+
+    // Let's use CONTAINER coordinates for simpler UI feeling first?
+    // No, normalized is best.
+
+    let x = (clientX - rect.left) / rect.width
+    let y = (clientY - rect.top) / rect.height
+
+    x = Math.max(0.05, Math.min(0.95, x))
+    y = Math.max(0.05, Math.min(0.95, y))
+
+    // Update State
+    state.edits[side].badge = { x, y }
+
+    // Update UI
+    el.style.left = (x * 100) + '%'
+    el.style.top = (y * 100) + '%'
+    el.style.bottom = 'auto'
+    el.style.transform = 'translate(-50%, -50%)'
+  }
+
+  const onEnd = () => {
+    if (isDragging) {
+      isDragging = false
+      el.style.cursor = 'grab'
+    }
+  }
+
+  el.addEventListener('mousedown', onStart)
+  el.addEventListener('touchstart', onStart, { passive: false })
+
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('touchmove', onMove, { passive: false })
+
+  window.addEventListener('mouseup', onEnd)
+  window.addEventListener('touchend', onEnd)
 }
 
 // ============================================
@@ -389,7 +501,13 @@ function toggleTool(tool) {
     elements.filterControls.classList.toggle('active', tool === 'filter')
 
     document.body.classList.remove('arrow-mode', 'filter-mode')
-    if (tool === 'arrow') document.body.classList.add('arrow-mode')
+    if (tool === 'arrow') {
+      document.body.classList.add('arrow-mode')
+      // Auto-add arrow if none exist on active side? Or just always add one?
+      // User request: "Arrows button par click karte hi ek ek arrow add ho jaye"
+      // Let's add one. 
+      addArrow()
+    }
     if (tool === 'filter') document.body.classList.add('filter-mode')
 
     // Refresh selections/ui
@@ -508,6 +626,13 @@ function setupCanvasInteraction(canvas, side) {
     const HANDLE_R = 30
     const ARROW_BODY_TOLERANCE = 30
 
+    // Pinch helpers
+    function getDist(p1, p2) {
+      const dx = p1.clientX - p2.clientX
+      const dy = p1.clientY - p2.clientY
+      return Math.sqrt(dx * dx + dy * dy)
+    }
+
     // Check handles of SELECTED arrow first
     if (state.activeSide === side && state.interaction.selectedArrowIndex !== -1) {
       const idx = state.interaction.selectedArrowIndex
@@ -534,8 +659,23 @@ function setupCanvasInteraction(canvas, side) {
     return null
   }
 
+  // Pinch State
+  let initialPinchDist = 0
+  let initialArrowSize = 10
+
   function handleDown(e) {
     if (state.activeTool !== 'arrow') return
+
+    // Pinch Start
+    if (e.touches && e.touches.length === 2) {
+      state.interaction.isPinching = true
+      initialPinchDist = getDist(e.touches[0], e.touches[1])
+      if (state.interaction.selectedArrowIndex !== -1) {
+        initialArrowSize = state.edits[side].arrows[state.interaction.selectedArrowIndex].size
+      }
+      return
+    }
+
     e.preventDefault()
     selectSide(side)
 
@@ -565,8 +705,24 @@ function setupCanvasInteraction(canvas, side) {
   }
 
   function handleMove(e) {
-    if (!state.interaction.isDragging || state.activeTool !== 'arrow') return
+    if (state.activeTool !== 'arrow') return
     e.preventDefault()
+
+    // Pinch Move
+    if (state.interaction.isPinching && e.touches && e.touches.length === 2) {
+      const dist = getDist(e.touches[0], e.touches[1])
+      if (initialPinchDist > 0 && state.interaction.selectedArrowIndex !== -1) {
+        const ratio = dist / initialPinchDist
+        let newSize = initialArrowSize * ratio
+        newSize = Math.max(2, Math.min(100, newSize))
+        state.edits[side].arrows[state.interaction.selectedArrowIndex].size = newSize
+        state.arrowSettings.size = newSize
+        redrawAll()
+      }
+      return
+    }
+
+    if (!state.interaction.isDragging) return
 
     const pos = getMousePos(e)
     const idx = state.interaction.selectedArrowIndex
@@ -628,6 +784,7 @@ function setupCanvasInteraction(canvas, side) {
 
   function handleUp(e) {
     state.interaction.isDragging = false
+    state.interaction.isPinching = false
     state.interaction.dragMode = null
     state.interaction.initialArrow = null
     canvas.style.cursor = 'default'
@@ -909,6 +1066,7 @@ function checkAndShowComparison() {
       resizeCanvas(elements.canvasBefore)
       resizeCanvas(elements.canvasAfter)
       selectSide('after')
+      updateBadgeSize() // Initial scale
       elements.comparisonSection.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }, 200)
   }
@@ -922,12 +1080,43 @@ function toggleLayout() {
   elements.layoutBtn.innerText = isVertical ? '↔️ Layout' : '↕️ Layout'
 
   // Re-measure canvas after layout change
+  // Re-measure canvas after layout change
   requestAnimationFrame(() => {
     resizeCanvas(elements.canvasBefore)
     resizeCanvas(elements.canvasAfter)
     redrawAll()
+    updateBadgeSize() // Scaling update
   })
 }
+
+function updateBadgeSize() {
+  // Sync live badge size with download logic: min(W,H) * 0.04
+  const container = document.querySelector('.collage-side')
+  if (!container) return
+
+  const w = container.clientWidth
+  const h = container.clientHeight
+  // Logic from download: const fontSize = Math.min(canvasW, canvasH) * 0.04
+  // Live canvas is usually half of download in side-by-side, or full in vertical.
+  // We need to visually approximate. 
+
+  // Use slightly smaller multiplier for CSS pixel values vs Canvas pixels
+  const fontSize = Math.max(12, Math.min(w, h) * 0.05) + 'px'
+
+  document.querySelectorAll('.collage-badge').forEach(el => {
+    el.style.fontSize = fontSize
+    // Scale padding slightly with font?
+    // padding: 0.25em 0.75em
+    el.style.padding = '0.3em 0.9em'
+  })
+}
+
+// Add to window resize
+window.addEventListener('resize', () => {
+  resizeCanvas(elements.canvasBefore)
+  resizeCanvas(elements.canvasAfter)
+  updateBadgeSize()
+})
 
 function swapImages() {
   // Swap Logic
@@ -1068,11 +1257,15 @@ async function generateComparisonBlob() {
         y: outputY + arrow.end.y * targetH
       }
 
-      // Scale size roughly by height ratio? 
-      // Let's assume size 10 is good for 800px height. 
-      // If targetH is 2000, size should be 2.5x
-      const scaleFactor = targetH / 800
-      const scaledSize = Math.max(5, arrow.size * scaleFactor)
+      // ACCURATE SCALING:
+      // We want the arrow to look as thick "relative to the image" as it looks on the screen.
+      // Screen Ratio: arrow.size / canvasEl.height  (approx, since canvasEl.height is visual height)
+      // Download Ratio: newSize / targetH
+      // So newSize = targetH * (arrow.size / canvasEl.height)
+
+      const visualRefHeight = canvasEl.clientHeight || 500 // Use CSS height for visual perception logic
+      const scaleFactor = targetH / visualRefHeight
+      const scaledSize = Math.max(2, arrow.size * scaleFactor)
 
       const tempArrow = { start: p1, end: p2, color: arrow.color, size: scaledSize }
       drawArrow(ctx, tempArrow, false) // False = no handles
@@ -1087,23 +1280,28 @@ async function generateComparisonBlob() {
   ctx.font = `bold ${fontSize}px sans-serif`
   ctx.textAlign = 'center'
 
-  function drawBadge(text, x, y) {
+  function drawBadge(text, cx, cy) {
     const tw = ctx.measureText(text).width + 40
     const th = fontSize + 20
+    const radius = Math.max(4, fontSize * 0.15) // Sharp but polished (approx 4px-8px visuals)
     ctx.fillStyle = '#dc2626'
-    ctx.beginPath(); ctx.roundRect(x - tw / 2, y - th / 2, tw, th, 15); ctx.fill()
+    ctx.beginPath(); ctx.roundRect(cx - tw / 2, cy - th / 2, tw, th, radius); ctx.fill()
     ctx.fillStyle = 'white'
-    ctx.fillText(text, x, y + fontSize * 0.3)
+    ctx.fillText(text, cx, cy + fontSize * 0.3)
   }
 
-  if (isVertical) {
-    drawBadge('BEFORE', xB + wB / 2, yB + hB - fontSize)
-    drawBadge('AFTER', xA + wA / 2, yA + hA - fontSize)
-  } else {
-    const badgeY = canvasH - border - fontSize
-    drawBadge('BEFORE', xB + wB / 2, badgeY)
-    drawBadge('AFTER', xA + wA / 2, badgeY)
-  }
+  // Draw Before Badge
+  const badgePosB = state.edits.before.badge
+  const bX = xB + badgePosB.x * wB
+  const bY = yB + badgePosB.y * hB
+
+  drawBadge('BEFORE', bX, bY)
+
+  // Draw After Badge
+  const badgePosA = state.edits.after.badge
+  const aX = xA + badgePosA.x * wA
+  const aY = yA + badgePosA.y * hA
+  drawBadge('AFTER', aX, aY)
 
   return new Promise((resolve) => {
     canvas.toBlob(blob => {

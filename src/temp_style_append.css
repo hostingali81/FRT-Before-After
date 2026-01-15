@@ -1,0 +1,38 @@
+/* ... existing code ... */
+
+.size-control {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.size-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--slate-600);
+}
+
+.btn-size {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    border: 1px solid var(--slate-300);
+    background: white;
+    color: var(--slate-700);
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.btn-size:hover {
+    background: var(--slate-100);
+    border-color: var(--slate-400);
+}
+
+.btn-size:active {
+    background: var(--slate-200);
+    transform: scale(0.95);
+}
