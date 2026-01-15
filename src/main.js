@@ -26,7 +26,7 @@ const state = {
 
   arrowSettings: {
     color: '#dc2626',
-    size: 10 // Default thicker for object look
+    size: 18 // Default thicker for object look
   },
 
   edits: {
@@ -206,7 +206,7 @@ function renderHTML() {
            <div class="size-control">
               <span class="size-label">Size</span>
               <button class="btn-size" id="btn-size-minus">-</button>
-              <input type="range" id="arrow-size" min="5" max="25" value="10">
+              <input type="range" id="arrow-size" min="5" max="35" value="20">
               <button class="btn-size" id="btn-size-plus">+</button>
            </div>
          </div>
@@ -364,13 +364,11 @@ function attachEventListeners() {
     updateSelectedArrow()
   })
 
-  elements.btnSizePlus.addEventListener('click', () => {
-    let val = parseInt(elements.arrowSize.value)
-    val = Math.min(25, val + 1)
-    elements.arrowSize.value = val
-    state.arrowSettings.size = val
-    updateSelectedArrow()
-  })
+  let val = parseInt(elements.arrowSize.value)
+  val = Math.min(35, val + 1)
+  elements.arrowSize.value = val
+  state.arrowSettings.size = val
+  updateSelectedArrow()
 
   elements.colorBtns.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -661,7 +659,7 @@ function setupCanvasInteraction(canvas, side) {
 
   // Pinch State
   let initialPinchDist = 0
-  let initialArrowSize = 10
+  let initialArrowSize = 18
 
   function handleDown(e) {
     if (state.activeTool !== 'arrow') return
@@ -858,6 +856,12 @@ function redrawCanvas(canvas, arrows, selectedIdx, rect) {
   const ctx = canvas.getContext('2d')
   ctx.clearRect(0, 0, canvas.width, canvas.height)
 
+  // Use min dimension for scaling to handle aspect ratio differences between Mobile (Vertical) and Desktop
+  // Mobile: 350x400 (min 350). Desktop: 600x400 (min 400).
+  // This keeps the scale factor much closer (0.35 vs 0.4) compared to width-only (0.58 vs 1.0).
+  const REFERENCE_BASE = 1000
+  const visualScale = Math.max(0.1, Math.min(rect.w, rect.h) / REFERENCE_BASE)
+
   arrows.forEach((arrow, i) => {
     const isSelected = i === selectedIdx
     // Convert Normalized to Pixel for drawing
@@ -865,7 +869,7 @@ function redrawCanvas(canvas, arrows, selectedIdx, rect) {
       start: { x: rect.x + arrow.start.x * rect.w, y: rect.y + arrow.start.y * rect.h },
       end: { x: rect.x + arrow.end.x * rect.w, y: rect.y + arrow.end.y * rect.h },
       color: arrow.color,
-      size: arrow.size
+      size: arrow.size * visualScale
     }
     drawArrow(ctx, pxArrow, isSelected)
   })
@@ -877,8 +881,8 @@ function drawArrow(ctx, arrow, isSelected) {
   // Draw Arrow logic
   // Calculate Arrowhead dimensions first to determine where the line should stop
   // 'Ek dam sharp' means narrower angle and longer head
-  const headAngle = Math.PI / 18  // e.g. 10 degrees
-  const headSize = Math.max(30, size * 6) // Longer head
+  const headAngle = Math.PI / 16  // Slightly wider angle for better visibility
+  const headSize = size * 7 // Increased length for "proper arrow" look
   const backDepth = headSize * 0.2 // Depth of the concavity
 
   // We need to stop the line (body) before it reaches the tip, otherwise the thick line
@@ -1258,13 +1262,9 @@ async function generateComparisonBlob() {
       }
 
       // ACCURATE SCALING:
-      // We want the arrow to look as thick "relative to the image" as it looks on the screen.
-      // Screen Ratio: arrow.size / canvasEl.height  (approx, since canvasEl.height is visual height)
-      // Download Ratio: newSize / targetH
-      // So newSize = targetH * (arrow.size / canvasEl.height)
-
-      const visualRefHeight = canvasEl.clientHeight || 500 // Use CSS height for visual perception logic
-      const scaleFactor = targetH / visualRefHeight
+      // We scale based on REFERENCE_BASE (1000) using min dimension
+      const REFERENCE_BASE = 1000
+      const scaleFactor = Math.min(targetW, targetH) / REFERENCE_BASE
       const scaledSize = Math.max(2, arrow.size * scaleFactor)
 
       const tempArrow = { start: p1, end: p2, color: arrow.color, size: scaledSize }
