@@ -303,6 +303,18 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
+/* Vertical Layout Mode */
+.collage-container.layout-vertical {
+  flex-direction: column !important;
+  height: auto !important;
+  /* Allow growing */
+}
+
+.collage-container.layout-vertical .collage-side:first-child {
+  border-right: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
 /* Canvas Overlay */
 .drawing-canvas {
   position: absolute;

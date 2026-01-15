@@ -13,6 +13,7 @@ const state = {
   afterImage: null,
   activeSide: 'after', // 'before' or 'after'
   activeTool: null,    // 'arrow' or 'filter' or null
+  layoutMode: 'horizontal', // 'horizontal' or 'vertical'
 
   // Arrow Interaction State
   interaction: {
@@ -241,6 +242,7 @@ function renderHTML() {
         <!-- Action Buttons -->
         <div class="controls">
           <button class="btn btn--secondary" id="swap-btn">🔄 Swap</button>
+          <button class="btn btn--secondary" id="layout-btn">↕️ Layout</button>
           <button class="btn btn--primary" id="share-btn">🔗 Share</button>
           <button class="btn btn--primary" id="download-btn">💾 Download</button>
           <button class="btn btn--accent" id="reset-btn">♻️ Reset</button>
@@ -266,6 +268,7 @@ function cacheElements() {
   elements.comparisonImageBefore = document.getElementById('comparison-before')
   elements.comparisonImageAfter = document.getElementById('comparison-after')
   elements.swapBtn = document.getElementById('swap-btn')
+  elements.layoutBtn = document.getElementById('layout-btn')
   elements.resetBtn = document.getElementById('reset-btn')
   elements.shareBtn = document.getElementById('share-btn')
   elements.downloadBtn = document.getElementById('download-btn')
@@ -309,6 +312,7 @@ function attachEventListeners() {
 
   // Controls
   elements.swapBtn.addEventListener('click', swapImages)
+  elements.layoutBtn.addEventListener('click', toggleLayout)
   elements.resetBtn.addEventListener('click', resetApp)
   if (elements.shareBtn) elements.shareBtn.addEventListener('click', shareComparison)
   elements.downloadBtn.addEventListener('click', downloadComparison)
@@ -420,35 +424,25 @@ function selectSide(side) {
 function addArrow() {
   if (!elements.comparisonSection.classList.contains('active')) return
 
-  // Calculate proportional size (e.g., 1.5% of width, constrained)
-  // This ensures arrows aren't huge on small screens or tiny on large ones
-  const defaultSize = Math.max(5, Math.min(25, Math.round(elements.canvasBefore.width * 0.015)))
+  // Calculate proportional size (relative to Image, not canvas)
+  // Store normalized coordinates (0-1) relative to the IMAGE CONTENT rect
+  const rectB = getRenderedRect(elements.canvasBefore, elements.comparisonImageBefore)
+  const rectA = getRenderedRect(elements.canvasAfter, elements.comparisonImageAfter)
 
-  // Use state setting if user explicitly picked one, but if it's default 10, try to be smart?
-  // Actually, better to just set the initial size based on canvas if it's the first time, 
-  // or just override the default "10" with this calculated value.
-  // Let's just use the calculated value as the new "default" for this arrow.
-  const arrowSize = state.arrowSettings.size === 10 ? defaultSize : state.arrowSettings.size
-
-  // Create arrow for Before side
-  const wB = elements.canvasBefore.width
-  const hB = elements.canvasBefore.height
+  // Default positions (approx 30% to 70%)
   const arrowBefore = {
-    start: { x: wB * 0.3, y: hB * 0.7 },
-    end: { x: wB * 0.7, y: hB * 0.3 },
+    start: { x: 0.3, y: 0.7 },
+    end: { x: 0.7, y: 0.3 },
     color: state.arrowSettings.color,
-    size: arrowSize
+    size: state.arrowSettings.size // Size remains "abstract" or pixel based? Let's keep size as simple unit, but scale drawing
   }
   state.edits.before.arrows.push(arrowBefore)
 
-  // Create arrow for After side
-  const wA = elements.canvasAfter.width
-  const hA = elements.canvasAfter.height
   const arrowAfter = {
-    start: { x: wA * 0.3, y: hA * 0.7 },
-    end: { x: wA * 0.7, y: hA * 0.3 },
+    start: { x: 0.3, y: 0.7 },
+    end: { x: 0.7, y: 0.3 },
     color: state.arrowSettings.color,
-    size: arrowSize
+    size: state.arrowSettings.size
   }
   state.edits.after.arrows.push(arrowAfter)
 
@@ -502,8 +496,17 @@ function setupCanvasInteraction(canvas, side) {
 
   function hitTest(pos) {
     const arrows = state.edits[side].arrows
-    const HANDLE_R = 30 // Generous touch target (60px diameter)
-    const ARROW_BODY_TOLERANCE = 30 // Easy to grab body
+    const imgEl = side === 'before' ? elements.comparisonImageBefore : elements.comparisonImageAfter
+    const rect = getRenderedRect(canvas, imgEl)
+
+    // Map function: Normalized -> Pixel
+    const toPx = (norm) => ({
+      x: rect.x + norm.x * rect.w,
+      y: rect.y + norm.y * rect.h
+    })
+
+    const HANDLE_R = 30
+    const ARROW_BODY_TOLERANCE = 30
 
     // Check handles of SELECTED arrow first
     if (state.activeSide === side && state.interaction.selectedArrowIndex !== -1) {
@@ -511,15 +514,20 @@ function setupCanvasInteraction(canvas, side) {
       const arrow = arrows[idx]
       if (!arrow) return null
 
-      if (dist(pos, arrow.start) <= HANDLE_R) return { type: 'start', index: idx }
-      if (dist(pos, arrow.end) <= HANDLE_R) return { type: 'end', index: idx }
+      const pStart = toPx(arrow.start)
+      const pEnd = toPx(arrow.end)
+
+      if (dist(pos, pStart) <= HANDLE_R) return { type: 'start', index: idx }
+      if (dist(pos, pEnd) <= HANDLE_R) return { type: 'end', index: idx }
     }
 
-    // Check bodies of ALL arrows (reverse order for z-index)
+    // Check bodies of ALL arrows
     for (let i = arrows.length - 1; i >= 0; i--) {
       const arrow = arrows[i]
-      // Much larger hit tolerance for body dragging
-      if (distToSegment(pos, arrow.start, arrow.end) <= Math.max(ARROW_BODY_TOLERANCE, arrow.size)) {
+      const pStart = toPx(arrow.start)
+      const pEnd = toPx(arrow.end)
+
+      if (distToSegment(pos, pStart, pEnd) <= Math.max(ARROW_BODY_TOLERANCE, arrow.size)) {
         return { type: 'body', index: i }
       }
     }
@@ -528,8 +536,8 @@ function setupCanvasInteraction(canvas, side) {
 
   function handleDown(e) {
     if (state.activeTool !== 'arrow') return
-    e.preventDefault() // prevent scroll
-    selectSide(side) // Make this side active
+    e.preventDefault()
+    selectSide(side)
 
     const pos = getMousePos(e)
     const hit = hitTest(pos)
@@ -538,11 +546,10 @@ function setupCanvasInteraction(canvas, side) {
       state.interaction.selectedArrowIndex = hit.index
       state.interaction.isDragging = true
       state.interaction.dragMode = hit.type
-      state.interaction.dragStartPos = pos
-      // clone arrow for delta calcs
+      state.interaction.dragStartPos = pos // Store raw mouse pos for diff
+      // clone arrow
       state.interaction.initialArrow = JSON.parse(JSON.stringify(state.edits[side].arrows[hit.index]))
 
-      // Set Cursor
       if (hit.type === 'start' || hit.type === 'end') {
         canvas.style.cursor = 'grabbing'
       } else {
@@ -566,15 +573,36 @@ function setupCanvasInteraction(canvas, side) {
     const arr = state.edits[side].arrows[idx]
     const mode = state.interaction.dragMode
 
+    const imgEl = side === 'before' ? elements.comparisonImageBefore : elements.comparisonImageAfter
+    const rect = getRenderedRect(canvas, imgEl)
+
+    // Convert current mouse pos to normalized
+    const toNorm = (px) => ({
+      x: (px.x - rect.x) / rect.w,
+      y: (px.y - rect.y) / rect.h
+    })
+
     if (mode === 'start') {
-      arr.start = pos
+      arr.start = toNorm(pos)
     } else if (mode === 'end') {
-      arr.end = pos
+      arr.end = toNorm(pos)
     } else if (mode === 'body') {
-      const dx = pos.x - state.interaction.dragStartPos.x
-      const dy = pos.y - state.interaction.dragStartPos.y
-      arr.start = { x: state.interaction.initialArrow.start.x + dx, y: state.interaction.initialArrow.start.y + dy }
-      arr.end = { x: state.interaction.initialArrow.end.x + dx, y: state.interaction.initialArrow.end.y + dy }
+      // Calculate delta in PIXELS
+      const dxPx = pos.x - state.interaction.dragStartPos.x
+      const dyPx = pos.y - state.interaction.dragStartPos.y
+
+      // Convert initial positions to pixels, add delta, then convert back to norm
+      const initStartPx = {
+        x: rect.x + state.interaction.initialArrow.start.x * rect.w,
+        y: rect.y + state.interaction.initialArrow.start.y * rect.h
+      }
+      const initEndPx = {
+        x: rect.x + state.interaction.initialArrow.end.x * rect.w,
+        y: rect.y + state.interaction.initialArrow.end.y * rect.h
+      }
+
+      arr.start = toNorm({ x: initStartPx.x + dxPx, y: initStartPx.y + dyPx })
+      arr.end = toNorm({ x: initEndPx.x + dxPx, y: initEndPx.y + dyPx })
     }
 
     redrawAll()
@@ -633,18 +661,56 @@ function distToSegment(p, v, w) {
 // ============================================
 // DRAWING
 // ============================================
-function redrawAll() {
-  redrawCanvas(elements.canvasBefore, state.edits.before.arrows, state.activeSide === 'before' ? state.interaction.selectedArrowIndex : -1)
-  redrawCanvas(elements.canvasAfter, state.edits.after.arrows, state.activeSide === 'after' ? state.interaction.selectedArrowIndex : -1)
+function getRenderedRect(canvas, img) {
+  // Calculates where the image is actually drawn on the canvas (object-fit: contain)
+  const cw = canvas.width
+  const ch = canvas.height
+  // Handle if img not loaded yet?
+  const iw = img.naturalWidth || 1000
+  const ih = img.naturalHeight || 1000
+  const imgAspect = iw / ih
+  const canvasAspect = cw / ch
+
+  let rw, rh, rx, ry
+
+  if (canvasAspect > imgAspect) {
+    // Canvas wider: Filler on sides (Pillarbox)
+    rh = ch
+    rw = rh * imgAspect
+    rx = (cw - rw) / 2
+    ry = 0
+  } else {
+    // Canvas taller: Filler on top/bottom (Letterbox)
+    rw = cw
+    rh = rw / imgAspect
+    rx = 0
+    ry = (ch - rh) / 2
+  }
+  return { x: rx, y: ry, w: rw, h: rh }
 }
 
-function redrawCanvas(canvas, arrows, selectedIdx) {
+function redrawAll() {
+  const rectB = getRenderedRect(elements.canvasBefore, elements.comparisonImageBefore)
+  redrawCanvas(elements.canvasBefore, state.edits.before.arrows, state.activeSide === 'before' ? state.interaction.selectedArrowIndex : -1, rectB)
+
+  const rectA = getRenderedRect(elements.canvasAfter, elements.comparisonImageAfter)
+  redrawCanvas(elements.canvasAfter, state.edits.after.arrows, state.activeSide === 'after' ? state.interaction.selectedArrowIndex : -1, rectA)
+}
+
+function redrawCanvas(canvas, arrows, selectedIdx, rect) {
   const ctx = canvas.getContext('2d')
   ctx.clearRect(0, 0, canvas.width, canvas.height)
 
   arrows.forEach((arrow, i) => {
     const isSelected = i === selectedIdx
-    drawArrow(ctx, arrow, isSelected)
+    // Convert Normalized to Pixel for drawing
+    const pxArrow = {
+      start: { x: rect.x + arrow.start.x * rect.w, y: rect.y + arrow.start.y * rect.h },
+      end: { x: rect.x + arrow.end.x * rect.w, y: rect.y + arrow.end.y * rect.h },
+      color: arrow.color,
+      size: arrow.size
+    }
+    drawArrow(ctx, pxArrow, isSelected)
   })
 }
 
@@ -848,6 +914,21 @@ function checkAndShowComparison() {
   }
 }
 
+function toggleLayout() {
+  state.layoutMode = state.layoutMode === 'horizontal' ? 'vertical' : 'horizontal'
+  const isVertical = state.layoutMode === 'vertical'
+
+  document.getElementById('collage-container').classList.toggle('layout-vertical', isVertical)
+  elements.layoutBtn.innerText = isVertical ? '↔️ Layout' : '↕️ Layout'
+
+  // Re-measure canvas after layout change
+  requestAnimationFrame(() => {
+    resizeCanvas(elements.canvasBefore)
+    resizeCanvas(elements.canvasAfter)
+    redrawAll()
+  })
+}
+
 function swapImages() {
   // Swap Logic
   const tempImg = state.beforeImage
@@ -887,32 +968,66 @@ async function generateComparisonBlob() {
     new Promise(r => afterImg.onload = r)
   ])
 
-  const h = Math.max(beforeImg.height, afterImg.height)
-  const scaleB = h / beforeImg.height
-  const scaleA = h / afterImg.height
-  const wB = beforeImg.width * scaleB
-  const wA = afterImg.width * scaleA
-  const gap = h * 0.01
-  const border = gap * 2
+  const isVertical = state.layoutMode === 'vertical'
+  const gap = 40
+  const border = 40
 
-  canvas.width = wB + wA + gap + border * 2
-  canvas.height = h + border * 2
+  let wB, hB, wA, hA, canvasW, canvasH, xB, yB, xA, yA
+
+  if (isVertical) {
+    // Vertical: Align by Width
+    const w = Math.max(beforeImg.width, afterImg.width)
+    const scaleB = w / beforeImg.width
+    const scaleA = w / afterImg.width
+    wB = w
+    hB = beforeImg.height * scaleB
+    wA = w
+    hA = afterImg.height * scaleA
+
+    canvasW = w + border * 2
+    canvasH = hB + hA + gap + border * 2
+
+    xB = border
+    yB = border
+    xA = border
+    yA = border + hB + gap
+  } else {
+    // Horizontal: Align by Height
+    const h = Math.max(beforeImg.height, afterImg.height)
+    const scaleB = h / beforeImg.height
+    const scaleA = h / afterImg.height
+    wB = beforeImg.width * scaleB
+    hB = h
+    wA = afterImg.width * scaleA
+    hA = h
+
+    canvasW = wB + wA + gap + border * 2
+    canvasH = h + border * 2
+
+    xB = border
+    yB = border
+    xA = border + wB + gap
+    yA = border
+  }
+
+  canvas.width = canvasW
+  canvas.height = canvasH
 
   ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height)
 
   // Draw Images
   ctx.save()
   ctx.filter = elements.comparisonImageBefore.style.filter
-  ctx.drawImage(beforeImg, border, border, wB, h)
+  ctx.drawImage(beforeImg, xB, yB, wB, hB)
   ctx.restore()
 
   ctx.save()
   ctx.filter = elements.comparisonImageAfter.style.filter
-  ctx.drawImage(afterImg, border + wB + gap, border, wA, h)
+  ctx.drawImage(afterImg, xA, yA, wA, hA)
   ctx.restore()
 
-  // Draw Arrows (using shared logic if possible, or copied fixed logic)
-  function renderArr(sideArgs, outputX) {
+  // Draw Arrows
+  function renderArr(sideArgs, outputX, outputY, targetW, targetH) {
     const arrowList = state.edits[sideArgs].arrows
     if (!arrowList || arrowList.length === 0) return
 
@@ -926,55 +1041,52 @@ async function generateComparisonBlob() {
     let renderW, renderH, offsetX, offsetY
 
     if (canvasAspect > imgAspect) {
-      // Canvas is wider than image (Pillarbox - empty sides)
+      // Canvas is wider than image (Pillarbox)
       renderH = canvasEl.height
       renderW = renderH * imgAspect
       offsetX = (canvasEl.width - renderW) / 2
       offsetY = 0
     } else {
-      // Canvas is taller than image (Letterbox - empty top/bottom)
+      // Canvas is taller than image (Letterbox)
       renderW = canvasEl.width
       renderH = renderW / imgAspect
       offsetX = 0
       offsetY = (canvasEl.height - renderH) / 2
     }
 
-    const targetW = sideArgs === 'before' ? wB : wA
-    const targetH = h
-
     arrowList.forEach(arrow => {
-      // Normalize coordinates relative to the ACTUAL IMAGE, not just the canvas
+      // Logic is already normalized now! 
+      // Arrow contains 0-1 coords. 
+      // We just need to map them to the download output rect (outputX, outputY, targetW, targetH)
 
-      function mapCoord(c) {
-        const normX = (c.x - offsetX) / renderW
-        const normY = (c.y - offsetY) / renderH
-
-        return {
-          x: normX * targetW + outputX,
-          y: normY * targetH + border
-        }
+      const p1 = {
+        x: outputX + arrow.start.x * targetW,
+        y: outputY + arrow.start.y * targetH
+      }
+      const p2 = {
+        x: outputX + arrow.end.x * targetW,
+        y: outputY + arrow.end.y * targetH
       }
 
-      const p1 = mapCoord(arrow.start)
-      const p2 = mapCoord(arrow.end)
+      // Scale size roughly by height ratio? 
+      // Let's assume size 10 is good for 800px height. 
+      // If targetH is 2000, size should be 2.5x
+      const scaleFactor = targetH / 800
+      const scaledSize = Math.max(5, arrow.size * scaleFactor)
 
-      const scaledSize = arrow.size * (targetH / renderH) // Scale thickness
       const tempArrow = { start: p1, end: p2, color: arrow.color, size: scaledSize }
       drawArrow(ctx, tempArrow, false) // False = no handles
     })
   }
 
-  renderArr('before', border)
-  renderArr('after', border + wB + gap)
+  renderArr('before', xB, yB, wB, hB)
+  renderArr('after', xA, yA, wA, hA)
 
   // Badges
-  const fontSize = h * 0.05
+  const fontSize = Math.min(canvasW, canvasH) * 0.04
   ctx.font = `bold ${fontSize}px sans-serif`
   ctx.textAlign = 'center'
 
-  const badgeY = canvas.height - border - fontSize
-
-  // Badge BG
   function drawBadge(text, x, y) {
     const tw = ctx.measureText(text).width + 40
     const th = fontSize + 20
@@ -984,8 +1096,14 @@ async function generateComparisonBlob() {
     ctx.fillText(text, x, y + fontSize * 0.3)
   }
 
-  drawBadge('BEFORE', border + wB / 2, badgeY)
-  drawBadge('AFTER', border + wB + gap + wA / 2, badgeY)
+  if (isVertical) {
+    drawBadge('BEFORE', xB + wB / 2, yB + hB - fontSize)
+    drawBadge('AFTER', xA + wA / 2, yA + hA - fontSize)
+  } else {
+    const badgeY = canvasH - border - fontSize
+    drawBadge('BEFORE', xB + wB / 2, badgeY)
+    drawBadge('AFTER', xA + wA / 2, badgeY)
+  }
 
   return new Promise((resolve) => {
     canvas.toBlob(blob => {
