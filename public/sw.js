@@ -1,75 +1,119 @@
 // ============================================
-// Service Worker for FRT-Before After
+// Service Worker - Full Offline Support
+// Auto-update with version control
 // ============================================
 
-const CACHE_NAME = 'bef-aft-v5';
-const ASSETS = [
-    '/',
-    '/index.html',
-    '/logo.png',
-    '/icon-192.png',
-    '/icon-512.png',
-    '/manifest.json'
-];
+const VERSION = '1.0.0';
+const CACHE_NAME = `before-after-v${VERSION}`;
+const RUNTIME_CACHE = `runtime-${VERSION}`;
 
-// Install Event: Cache critical assets
+// Install: Cache on first load
 self.addEventListener('install', (event) => {
-    console.log('[Service Worker] Installing...');
+    console.log(`[SW] Installing version ${VERSION}`);
     event.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {
-            console.log('[Service Worker] Caching app shell');
-            return cache.addAll(ASSETS);
-        })
-    );
-    self.skipWaiting();
-});
-
-// Activate Event: Clean up old caches
-self.addEventListener('activate', (event) => {
-    console.log('[Service Worker] Activating...');
-    event.waitUntil(
-        caches.keys().then((keyList) => {
-            return Promise.all(
-                keyList.map((key) => {
-                    if (key !== CACHE_NAME) {
-                        console.log('[Service Worker] Removing old cache', key);
-                        return caches.delete(key);
-                    }
-                })
-            );
-        })
-    );
-    self.clients.claim();
-});
-
-// Fetch Event: Mixed Strategy
-self.addEventListener('fetch', (event) => {
-    // Strategy for HTML/Navigation: Network First (Freshness is critical)
-    if (event.request.mode === 'navigate') {
-        event.respondWith(
-            fetch(event.request)
-                .then((networkResponse) => {
-                    return caches.open(CACHE_NAME).then((cache) => {
-                        cache.put(event.request, networkResponse.clone());
-                        return networkResponse;
-                    });
-                })
-                .catch(() => {
-                    return caches.match(event.request);
-                })
-        );
-    } else {
-        // Strategy for Assets (Styles, Scripts, Images): Cache First (Performance)
-        event.respondWith(
-            caches.match(event.request).then((cachedResponse) => {
-                if (cachedResponse) return cachedResponse;
-                return fetch(event.request).then((networkResponse) => {
-                    return caches.open(CACHE_NAME).then((cache) => {
-                        cache.put(event.request, networkResponse.clone());
-                        return networkResponse;
-                    });
-                });
+        caches.open(CACHE_NAME)
+            .then(cache => {
+                console.log('[SW] Service Worker installed, will cache on first use');
+                return cache.addAll(['/']);
             })
+            .then(() => self.skipWaiting())
+    );
+});
+
+// Activate: Clean old caches & take control
+self.addEventListener('activate', (event) => {
+    console.log(`[SW] Activating version ${VERSION}`);
+    event.waitUntil(
+        caches.keys()
+            .then(cacheNames => {
+                return Promise.all(
+                    cacheNames.map(cache => {
+                        if (cache !== CACHE_NAME && cache !== RUNTIME_CACHE) {
+                            console.log('[SW] Deleting old cache:', cache);
+                            return caches.delete(cache);
+                        }
+                    })
+                );
+            })
+            .then(() => self.clients.claim())
+    );
+});
+
+// Fetch: Cache-first strategy for offline support
+self.addEventListener('fetch', (event) => {
+    const { request } = event;
+    const url = new URL(request.url);
+
+    // Skip non-GET requests
+    if (request.method !== 'GET') return;
+
+    // Skip chrome-extension and other protocols
+    if (!url.protocol.startsWith('http')) return;
+
+    // Handle external requests (fonts, etc)
+    if (url.origin !== location.origin) {
+        event.respondWith(
+            caches.match(request)
+                .then(cached => {
+                    if (cached) return cached;
+                    return fetch(request)
+                        .then(response => {
+                            // Cache external resources too
+                            if (response.status === 200) {
+                                const responseClone = response.clone();
+                                caches.open(RUNTIME_CACHE).then(cache => {
+                                    cache.put(request, responseClone);
+                                });
+                            }
+                            return response;
+                        })
+                        .catch(() => {
+                            // Return empty response for failed external requests
+                            return new Response('', { status: 200 });
+                        });
+                })
         );
+        return;
+    }
+
+    // For same-origin requests: Cache-first strategy
+    event.respondWith(
+        caches.match(request)
+            .then(cached => {
+                // Return cached version if available
+                if (cached) {
+                    console.log('[SW] Serving from cache:', request.url);
+                    return cached;
+                }
+
+                // Fetch from network and cache
+                return fetch(request)
+                    .then(response => {
+                        // Only cache successful responses
+                        if (response.status === 200) {
+                            const responseClone = response.clone();
+                            caches.open(CACHE_NAME).then(cache => {
+                                console.log('[SW] Caching:', request.url);
+                                cache.put(request, responseClone);
+                            });
+                        }
+                        return response;
+                    })
+                    .catch(error => {
+                        console.error('[SW] Fetch failed:', error);
+                        // Return offline page for navigation requests
+                        if (request.mode === 'navigate') {
+                            return caches.match('/offline.html');
+                        }
+                        throw error;
+                    });
+            })
+    );
+});
+
+// Message handler for manual updates
+self.addEventListener('message', (event) => {
+    if (event.data === 'SKIP_WAITING') {
+        self.skipWaiting();
     }
 });

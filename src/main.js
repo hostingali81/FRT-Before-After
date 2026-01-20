@@ -100,6 +100,7 @@ function initApp() {
   cacheElements()
   attachEventListeners()
   setupPWA()
+  setupConnectionStatus()
   console.log('📱 App Initialized: Object-based Arrows Mode')
 }
 
@@ -135,6 +136,87 @@ function setupPWA() {
       });
     }
   });
+}
+
+// ============================================
+// CONNECTION STATUS INDICATOR
+// ============================================
+function setupConnectionStatus() {
+  let statusIndicator = null;
+
+  function showStatus(isOnline) {
+    // Remove existing indicator
+    if (statusIndicator) {
+      statusIndicator.remove();
+    }
+
+    // Create new indicator
+    statusIndicator = document.createElement('div');
+    statusIndicator.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: ${isOnline ? '#10b981' : '#ef4444'};
+      color: white;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 600;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      animation: slideIn 0.3s ease;
+    `;
+
+    statusIndicator.innerHTML = `
+      <span>${isOnline ? '✅' : '⚠️'}</span>
+      <span>${isOnline ? 'Online' : 'Offline Mode'}</span>
+    `;
+
+    document.body.appendChild(statusIndicator);
+
+    // Auto-hide after 3 seconds if online
+    if (isOnline) {
+      setTimeout(() => {
+        if (statusIndicator && statusIndicator.parentElement) {
+          statusIndicator.style.animation = 'slideOut 0.3s ease';
+          setTimeout(() => statusIndicator.remove(), 300);
+        }
+      }, 3000);
+    }
+  }
+
+  // Add animations
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes slideIn {
+      from { transform: translateX(100px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(100px); opacity: 0; }
+    }
+  `;
+  document.head.appendChild(style);
+
+  // Listen for connection changes
+  window.addEventListener('online', () => {
+    console.log('[PWA] ✅ Back online!');
+    showStatus(true);
+  });
+
+  window.addEventListener('offline', () => {
+    console.log('[PWA] ⚠️ Offline mode activated');
+    showStatus(false);
+  });
+
+  // Show initial status if offline
+  if (!navigator.onLine) {
+    showStatus(false);
+  }
 }
 
 // ============================================
@@ -1363,7 +1445,115 @@ async function shareComparison() {
 
 initApp()
 
-// PWA Logic
+// ============================================
+// PWA SERVICE WORKER REGISTRATION
+// With Auto-Update Support
+// ============================================
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(console.error)
+  let refreshing = false;
+
+  // Detect controller change and reload
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshing) return;
+    refreshing = true;
+    console.log('[PWA] New version activated, reloading...');
+    window.location.reload();
+  });
+
+  // Register service worker
+  navigator.serviceWorker.register('/sw.js')
+    .then(registration => {
+      console.log('[PWA] Service Worker registered successfully');
+      console.log('[PWA] ✅ App is now available OFFLINE!');
+
+      // Check for updates every 60 seconds
+      setInterval(() => {
+        registration.update();
+      }, 60000);
+
+      // Listen for updates
+      registration.addEventListener('updatefound', () => {
+        const newWorker = registration.installing;
+        console.log('[PWA] New version found, installing...');
+
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            // New version available
+            console.log('[PWA] New version installed!');
+            showUpdateNotification(newWorker);
+          }
+        });
+      });
+    })
+    .catch(err => {
+      console.error('[PWA] Service Worker registration failed:', err);
+    });
+}
+
+// Show update notification
+function showUpdateNotification(worker) {
+  // Create notification element
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 16px 24px;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    animation: slideUp 0.3s ease;
+    max-width: 90%;
+  `;
+
+  notification.innerHTML = `
+    <span style="font-size: 24px;">🎉</span>
+    <div style="flex: 1;">
+      <div style="font-weight: 600; margin-bottom: 4px;">New Version Available!</div>
+      <div style="font-size: 14px; opacity: 0.9;">Click to update and get new features</div>
+    </div>
+    <button style="
+      background: white;
+      color: #667eea;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 14px;
+    ">Update Now</button>
+  `;
+
+  // Add animation
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes slideUp {
+      from { transform: translateX(-50%) translateY(100px); opacity: 0; }
+      to { transform: translateX(-50%) translateY(0); opacity: 1; }
+    }
+  `;
+  document.head.appendChild(style);
+
+  // Add click handler
+  notification.querySelector('button').addEventListener('click', () => {
+    worker.postMessage('SKIP_WAITING');
+    notification.remove();
+  });
+
+  document.body.appendChild(notification);
+
+  // Auto-remove after 30 seconds
+  setTimeout(() => {
+    if (notification.parentElement) {
+      notification.style.animation = 'slideUp 0.3s ease reverse';
+      setTimeout(() => notification.remove(), 300);
+    }
+  }, 30000);
 }

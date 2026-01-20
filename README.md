@@ -39,6 +39,18 @@ npm run build
 npm run preview
 ```
 
+### Test Offline Mode
+
+```bash
+# Build and preview
+npm run build && npm run preview
+
+# Then in Chrome:
+# F12 → Application → Service Workers → Check "Offline"
+```
+
+See [PWA-TESTING.md](./PWA-TESTING.md) for detailed testing instructions.
+
 ## 📦 Deploy to Vercel
 
 ### Method 1: Vercel CLI
@@ -93,10 +105,34 @@ vercel
 
 ## 📱 PWA Features
 
-- Install on mobile home screen
-- Offline functionality
-- Fast loading with caching
-- Native app-like experience
+- ✅ **Full Offline Support** - Works completely without internet after first visit
+- ✅ **Auto-Update** - Automatically checks for updates every 60 seconds
+- ✅ **Smart Caching** - Caches all assets for instant loading
+- ✅ **Install on Home Screen** - Native app-like experience
+- ✅ **Version Control** - Seamless updates without re-installation
+- ✅ **Background Sync** - Updates happen automatically in background
+
+### How Offline Works:
+
+1. **First Visit** (Internet Required)
+   - App downloads and caches all files
+   - Service Worker installs automatically
+   - Ready for offline use!
+
+2. **Subsequent Visits** (No Internet Needed)
+   - App loads instantly from cache
+   - All features work offline:
+     - Upload images from device
+     - Add arrows and annotations
+     - Apply filters
+     - Download comparisons
+     - Everything except sharing (needs internet)
+
+3. **Auto-Updates**
+   - When online, checks for updates automatically
+   - Downloads new version in background
+   - Prompts user to reload when ready
+   - Old users get updates automatically!
 
 ## 🎨 Design Features
 
@@ -141,6 +177,12 @@ const maxSize = 10 * 1024 * 1024 // 10MB (adjust as needed)
 - ✅ Firefox (latest)
 - ✅ Safari (latest)
 - ✅ Mobile browsers (iOS Safari, Chrome Mobile)
+
+## 📚 Documentation
+
+- **[QUICK-REFERENCE.md](./QUICK-REFERENCE.md)** - Quick reference card for all PWA features
+- **[PWA-TESTING.md](./PWA-TESTING.md)** - Complete testing guide for offline functionality
+- **[IMPLEMENTATION-SUMMARY.md](./IMPLEMENTATION-SUMMARY.md)** - Detailed implementation summary (Urdu)
 
 ## 📄 License
 
