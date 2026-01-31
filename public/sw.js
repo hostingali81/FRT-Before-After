@@ -3,7 +3,7 @@
 // Auto-update with version control
 // ============================================
 
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 const CACHE_NAME = `before-after-v${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
 
