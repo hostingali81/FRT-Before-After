@@ -1428,8 +1428,6 @@ async function shareComparison() {
     const file = new File([blob], 'before-after.jpg', { type: 'image/jpeg' })
 
     await navigator.share({
-      title: 'Before & After Comparison',
-      text: 'Check out this professional before & after comparison!',
       files: [file]
     })
   } catch (err) {
