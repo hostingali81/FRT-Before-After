@@ -226,7 +226,7 @@ function renderHTML() {
   elements.app.innerHTML = `
     <!-- Header -->
     <header class="header">
-      <h1 class="header__title">Before & After</h1>
+      <h1 class="header__title">FRT Before After Comparison</h1>
       <button id="install-btn" class="btn btn--sm btn--primary" style="display: none; margin-left: auto;">⬇️ Install App</button>
     </header>
 
@@ -236,8 +236,9 @@ function renderHTML() {
       <div class="card upload-card">
         <label class="upload-label"><span class="badge badge--before">Before</span></label>
         <div class="upload-area" id="before-upload-area">
-          <div class="upload-icon">📷</div>
+          <svg class="upload-icon" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
           <p class="upload-text">Upload Before</p>
+          <p class="upload-hint">Click or drag image</p>
           <input type="file" id="before-input" class="upload-input" accept="image/*" />
           <img id="before-preview" class="upload-preview" />
         </div>
@@ -247,8 +248,9 @@ function renderHTML() {
       <div class="card upload-card">
         <label class="upload-label"><span class="badge badge--after">After</span></label>
         <div class="upload-area" id="after-upload-area">
-          <div class="upload-icon">📸</div>
+          <svg class="upload-icon" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
           <p class="upload-text">Upload After</p>
+          <p class="upload-hint">Click or drag image</p>
           <input type="file" id="after-input" class="upload-input" accept="image/*" />
           <img id="after-preview" class="upload-preview" />
         </div>
@@ -261,11 +263,11 @@ function renderHTML() {
       <!-- Toolbar -->
       <div class="editing-toolbar">
         <button class="tool-btn" id="tool-arrow">
-          <span class="tool-icon">↖️</span>
+          <svg class="tool-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline></svg>
           <span class="tool-label">Arrows</span>
         </button>
         <button class="tool-btn" id="tool-filter">
-          <span class="tool-icon">🎨</span>
+          <svg class="tool-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6m5.2-13.2l-4.2 4.2m0 6l4.2 4.2M23 12h-6m-6 0H1m18.2-5.2l-4.2 4.2m0 6l4.2 4.2"></path></svg>
           <span class="tool-label">Filters</span>
         </button>
       </div>
@@ -333,11 +335,26 @@ function renderHTML() {
 
         <!-- Action Buttons -->
         <div class="controls">
-          <button class="btn btn--secondary" id="swap-btn">🔄 Swap</button>
-          <button class="btn btn--secondary" id="layout-btn">↕️ Layout</button>
-          <button class="btn btn--primary" id="share-btn">🔗 Share</button>
-          <button class="btn btn--primary" id="download-btn">💾 Download</button>
-          <button class="btn btn--accent" id="reset-btn">♻️ Reset</button>
+          <button class="btn btn--secondary" id="swap-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
+            Swap
+          </button>
+          <button class="btn btn--secondary" id="layout-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="12" x2="21" y2="12"></line></svg>
+            Layout
+          </button>
+          <button class="btn btn--primary" id="share-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
+            Share
+          </button>
+          <button class="btn btn--primary" id="download-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            Download
+          </button>
+          <button class="btn btn--accent" id="reset-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><polyline points="23 20 23 14 17 14"></polyline><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path></svg>
+            Reset
+          </button>
         </div>
       </div>
     </section>
@@ -1163,7 +1180,7 @@ function toggleLayout() {
   const isVertical = state.layoutMode === 'vertical'
 
   document.getElementById('collage-container').classList.toggle('layout-vertical', isVertical)
-  elements.layoutBtn.innerText = isVertical ? '↔️ Layout' : '↕️ Layout'
+  elements.layoutBtn.innerHTML = isVertical ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="3" x2="12" y2="21"></line></svg> Layout' : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="12" x2="21" y2="12"></line></svg> Layout'
 
   // Re-measure canvas after layout change
   // Re-measure canvas after layout change
