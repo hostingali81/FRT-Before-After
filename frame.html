@@ -1,9 +1,0 @@
-<!doctype html><html><head><meta charset="UTF-8"><title>frame</title>
-<style>html,body{margin:0;background:#20232b}iframe{width:var(--w,390px);height:var(--h,844px);border:0;display:block}</style></head>
-<body><iframe id="f"></iframe><script>
-const q=new URLSearchParams(location.search); const f=document.getElementById('f')
-document.documentElement.style.setProperty('--w',(q.get('w')||390)+'px')
-document.documentElement.style.setProperty('--h',(q.get('h')||844)+'px')
-q.delete('w'); q.delete('h'); f.src='/visual-harness.html?'+q.toString()
-setInterval(()=>{try{const t=f.contentDocument&&f.contentDocument.title;if(t&&t!=='visual')document.title=t}catch(e){}},60)
-</script></body></html>
