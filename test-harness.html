@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>harness</title>
+</head>
+
+<body>
+  <div id="app"></div>
+  <pre id="report" style="position:fixed;inset:auto 0 0 0;background:#fff;color:#000;font:12px monospace;z-index:99999"></pre>
+  <script type="module">
+    const errors = []
+    window.addEventListener('error', e => errors.push('error: ' + e.message))
+    window.addEventListener('unhandledrejection', e => errors.push('rejection: ' + (e.reason && e.reason.message)))
+    const origError = console.error
+    console.error = (...a) => { errors.push('console.error: ' + a.join(' ')); origError(...a) }
+
+    let lastExport = null
+    const realToBlob = HTMLCanvasElement.prototype.toBlob
+    HTMLCanvasElement.prototype.toBlob = function (cb, ...rest) {
+      lastExport = { w: this.width, h: this.height }
+      return realToBlob.call(this, cb, ...rest)
+    }
+    HTMLAnchorElement.prototype.click = function () { }
+
+    await import('/src/main.js')
+
+    const $ = (sel) => document.querySelector(sel)
+    const tick = () => new Promise(r => setTimeout(r, 16))
+    async function waitFor(label, predicate, tries = 700) {
+      for (let i = 0; i < tries; i++) { if (predicate()) return true; await tick() }
+      errors.push('TIMEOUT: ' + label)
+      return false
+    }
+    async function settle() {
+      let prev = ''
+      for (let i = 0; i < 400; i++) {
+        const b = $('#side-before').getBoundingClientRect()
+        const a = $('#side-after').getBoundingClientRect()
+        const now = [b.width, b.height, a.width, a.height].map(n => n.toFixed(2)).join(',')
+        if (now === prev && i > 2) return
+        prev = now
+        await tick()
+      }
+      errors.push('geometry never settled')
+    }
+    function makeFile(w, h, label) {
+      const c = document.createElement('canvas')
+      c.width = w; c.height = h
+      const x = c.getContext('2d')
+      x.fillStyle = '#48c'; x.fillRect(0, 0, w, h)
+      x.fillStyle = '#fff'; x.font = 'bold 40px sans-serif'; x.fillText(label, 20, 60)
+      return new Promise(r => realToBlob.call(c, b => r(new File([b], 'x.png', { type: 'image/png' })), 'image/png'))
+    }
+    async function upload(side, w, h) {
+      const input = document.getElementById(side + '-input')
+      const dt = new DataTransfer()
+      dt.items.add(await makeFile(w, h, side))
+      input.files = dt.files
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      await waitFor(`${side} ${w}x${h}`, () => {
+        const p = document.getElementById(side + '-preview')
+        return p.naturalWidth === w && p.naturalHeight === h
+      })
+      await settle()
+    }
+    const layoutBtn = (mode) => $(`#layout-switch [data-mode="${mode}"]`)
+    const pressedLayout = () => [...document.querySelectorAll('#layout-switch [data-mode]')]
+      .find(b => b.getAttribute('aria-pressed') === 'true').dataset.mode
+
+    function measure(tag, expectA1, expectA2) {
+      const container = $('#collage-container')
+      const br = $('#side-before').getBoundingClientRect()
+      const ar = $('#side-after').getBoundingClientRect()
+      const cr = container.getBoundingClientRect()
+      const isV = container.classList.contains('layout-vertical')
+      const matched = isV ? Math.abs(br.width - ar.width) < 1 : Math.abs(br.height - ar.height) < 1
+      const aspectsOk = Math.abs(br.width / br.height - expectA1) < 0.02 &&
+        Math.abs(ar.width / ar.height - expectA2) < 0.02
+      const canvas = $('#canvas-before')
+      const dpr = window.devicePixelRatio || 1
+      return {
+        tag, layout: isV ? 'vertical' : 'horizontal', mode: pressedLayout(),
+        matched: matched ? 'OK' : 'MISMATCH',
+        paneAspects: aspectsOk ? 'OK' : 'MISMATCH',
+        canvasSized: Math.abs(canvas.width - br.width * dpr) <= 2 ? 'OK' : 'MISMATCH'
+      }
+    }
+    async function exportCheck(tag) {
+      const btn = $('#download-btn')
+      await waitFor('idle ' + tag, () => !btn.disabled)
+      lastExport = null
+      btn.click()
+      await waitFor('export ' + tag, () => lastExport !== null)
+      await waitFor('done ' + tag, () => !btn.disabled)
+      const cr = $('#collage-container').getBoundingClientRect()
+      return {
+        tag, size: `${lastExport.w}x${lastExport.h}`,
+        match: Math.abs(lastExport.w / lastExport.h - cr.width / cr.height) < 0.01 ? 'OK' : 'MISMATCH'
+      }
+    }
+
+    const vh = () => document.documentElement.clientHeight
+    const fullyVisible = (sel) => {
+      const r = $(sel).getBoundingClientRect()
+      return r.height > 10 && r.top >= -1 && r.bottom <= vh() + 1
+    }
+
+    const cases = [], exports = [], checks = []
+    const check = (name, pass, detail) => checks.push({ check: name, result: pass ? 'OK' : ('FAIL' + (detail ? ' ' + detail : '')) })
+
+    check('actions disabled while empty', ['#swap-btn', '#share-btn', '#download-btn'].every(s => $(s).disabled))
+    check('editor panels hidden while empty', [...document.querySelectorAll('[data-requires-images]')].every(p => p.hidden))
+
+    await upload('before', 900, 1200)
+    await upload('after', 900, 1200)
+    cases.push(measure('portrait pair (auto)', 0.75, 0.75))
+    exports.push(await exportCheck('portrait auto'))
+
+    check('actions enabled once ready', ['#swap-btn', '#share-btn', '#download-btn'].every(s => !$(s).disabled))
+    check('editor panels shown once ready', [...document.querySelectorAll('[data-requires-images]')].every(p => !p.hidden))
+
+    // --- The shell must fit the measured viewport, buttons and all -----------
+    const appHeight = getComputedStyle(document.documentElement).getPropertyValue('--app-height').trim()
+    const measured = (window.visualViewport && window.visualViewport.height) || window.innerHeight
+    check('--app-height tracks the visual viewport', appHeight === Math.round(measured) + 'px',
+      `(${appHeight} vs ${Math.round(measured)}px)`)
+    check('shell fits the viewport',
+      $('.app-shell').getBoundingClientRect().bottom <= vh() + 1,
+      `(bottom=${$('.app-shell').getBoundingClientRect().bottom.toFixed(0)} vh=${vh()})`)
+    check('Download button fully visible', fullyVisible('#download-btn'))
+    check('Share button fully visible', fullyVisible('#share-btn'))
+    check('Swap button fully visible', fullyVisible('#swap-btn'))
+    check('Start over button fully visible', fullyVisible('#reset-btn'))
+    check('preview visible at rest', fullyVisible('#collage-container'))
+
+    $('#tool-arrow').click()
+    for (let i = 0; i < 45; i++) await tick()
+    check('preview visible with Arrows open', fullyVisible('#collage-container'))
+    check('Download still visible with Arrows open', fullyVisible('#download-btn'))
+    check('page itself did not scroll', document.documentElement.scrollTop === 0 && window.scrollY === 0)
+
+    $('#tool-filter').click()
+    for (let i = 0; i < 45; i++) await tick()
+    check('preview visible with Filters open', fullyVisible('#collage-container'))
+    check('Download still visible with Filters open', fullyVisible('#download-btn'))
+    $('#tool-filter').click(); await tick()
+
+    // --- Zoom is locked ------------------------------------------------------
+    const vp = document.querySelector('meta[name="viewport"]').content
+    check('zoom locked in viewport meta', /user-scalable=no/.test(vp) && /maximum-scale=1/.test(vp), `(${vp})`)
+    check('double-tap zoom disabled on the shell',
+      getComputedStyle($('.app-shell')).touchAction === 'manipulation',
+      `(${getComputedStyle($('.app-shell')).touchAction})`)
+
+    // --- Naming --------------------------------------------------------------
+    check('filters tool is named Filters', $('#tool-filter').textContent.trim() === 'Filters')
+    check('layout options spelled out',
+      [...document.querySelectorAll('#layout-switch [data-mode]')].map(b => b.textContent.trim()).join('|')
+      === 'Auto|Side by side|Top & bottom')
+    check('side switch is labelled', $('#side-switch').closest('.field').textContent.includes('Apply edits to'))
+
+    // --- Layout + export regression ------------------------------------------
+    layoutBtn('vertical').click(); await settle()
+    cases.push(measure('picked stacked', 0.75, 0.75))
+    exports.push(await exportCheck('portrait stacked'))
+    layoutBtn('horizontal').click(); await settle()
+    cases.push(measure('picked side by side', 0.75, 0.75))
+    layoutBtn('auto').click(); await settle()
+    cases.push(measure('back to auto', 0.75, 0.75))
+
+    await upload('before', 1600, 900)
+    await upload('after', 1600, 900)
+    cases.push(measure('landscape pair (auto)', 1.7778, 1.7778))
+    exports.push(await exportCheck('landscape auto'))
+
+    await upload('after', 1200, 1200)
+    cases.push(measure('landscape + square', 1.7778, 1.0))
+    exports.push(await exportCheck('mixed'))
+
+    $('#swap-btn').click()
+    await waitFor('swap', () => $('#before-preview').naturalWidth === 1200)
+    await settle()
+    cases.push(measure('after swap', 1.0, 1.7778))
+    exports.push(await exportCheck('after swap'))
+    check('Download visible after everything', fullyVisible('#download-btn'))
+
+    $('#report').textContent = JSON.stringify({ checks, cases, exports, errors }, null, 1)
+    document.title = 'DONE'
+  </script>
+</body>
+
+</html>

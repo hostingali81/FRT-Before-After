@@ -80,9 +80,33 @@ const elements = {
 }
 
 // ============================================
+// VIEWPORT HEIGHT
+// ============================================
+// Android hands out a dvh that includes the strip behind the system navigation
+// bar, so a 100dvh shell pushes its own footer out of sight. visualViewport
+// reports what the user can actually see; fall back to innerHeight, and leave
+// the CSS unit in place if neither is available.
+function updateAppHeight() {
+  const height = (window.visualViewport && window.visualViewport.height) || window.innerHeight
+  if (height > 0) {
+    document.documentElement.style.setProperty('--app-height', `${Math.round(height)}px`)
+  }
+}
+
+function watchViewportHeight() {
+  updateAppHeight()
+  window.addEventListener('resize', updateAppHeight)
+  window.addEventListener('orientationchange', updateAppHeight)
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', updateAppHeight)
+  }
+}
+
+// ============================================
 // INITIALIZE APP
 // ============================================
 function initApp() {
+  watchViewportHeight()
   renderHTML()
   cacheElements()
   attachEventListeners()
@@ -595,6 +619,7 @@ function attachEventListeners() {
   // those is what used to make dragging stutter mid-scroll.
   let resizeTimer = 0
   const onViewportChange = () => {
+    updateAppHeight()
     clearTimeout(resizeTimer)
     resizeTimer = setTimeout(() => requestAnimationFrame(refreshCollageGeometry), 120)
   }

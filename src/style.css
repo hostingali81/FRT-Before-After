@@ -70,6 +70,18 @@
   --appbar-h: 60px;
   --control-h: 44px;
   --control-h-lg: 52px;
+
+  /* The height the shell may actually use. CSS viewport units are the starting
+     guess; JS replaces this with the measured visual viewport, because Android
+     reports a dvh that includes the area behind the system navigation bar and
+     the action bar was landing underneath it. */
+  --app-height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --app-height: 100dvh;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -120,9 +132,11 @@ html {
 }
 
 body {
-  min-height: 100dvh;
+  min-height: var(--app-height);
   background: var(--bg);
   color: var(--text);
+  /* No pull-to-refresh or rubber-banding over a fixed editor surface. */
+  overscroll-behavior: none;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 15px;
   line-height: 1.5;
@@ -199,7 +213,10 @@ button {
 .app-shell {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  min-height: var(--app-height);
+  /* Allows panning and pinch but kills double-tap-to-zoom, which otherwise
+     fires on every quick tap of a control. */
+  touch-action: manipulation;
 }
 
 .appbar {
@@ -210,8 +227,10 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  height: var(--appbar-h);
-  padding: 0 20px;
+  height: calc(var(--appbar-h) + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
+  padding-left: max(20px, env(safe-area-inset-left));
+  padding-right: max(20px, env(safe-area-inset-right));
   background: color-mix(in srgb, var(--surface) 82%, transparent);
   backdrop-filter: blur(14px) saturate(180%);
   -webkit-backdrop-filter: blur(14px) saturate(180%);
@@ -253,7 +272,8 @@ button {
 
 @media (max-width: 520px) {
   .appbar {
-    padding: 0 14px;
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
   }
 
   .appbar__tag {
@@ -285,7 +305,7 @@ button {
 
 @media (max-width: 520px) {
   .workspace {
-    padding: 14px;
+    padding: 14px max(14px, env(safe-area-inset-right)) 14px max(14px, env(safe-area-inset-left));
     gap: 14px;
   }
 }
@@ -306,8 +326,7 @@ button {
   }
 
   .app-shell {
-    height: 100vh;
-    height: 100dvh;
+    height: var(--app-height);
     overflow: hidden;
   }
 
@@ -1135,8 +1154,9 @@ body.arrow-mode .drawing-canvas {
   position: sticky;
   bottom: 0;
   z-index: 45;
+  flex: 0 0 auto;
   margin-top: auto;
-  padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+  padding: 12px max(20px, env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   backdrop-filter: blur(14px) saturate(180%);
   -webkit-backdrop-filter: blur(14px) saturate(180%);
@@ -1166,7 +1186,7 @@ body.arrow-mode .drawing-canvas {
    utilities collapse to square icon buttons. */
 @media (max-width: 719px) {
   .actionbar {
-    padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+    padding: 10px max(14px, env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
   }
 
   .actionbar__inner {

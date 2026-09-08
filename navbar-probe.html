@@ -1,0 +1,48 @@
+<!doctype html><html><head><meta charset="UTF-8"><title>navbar-probe</title>
+<style>html,body{margin:0;background:#111}#f{width:var(--w,390px);height:var(--h,800px);border:0;display:block}</style></head>
+<body><iframe id="f"></iframe><pre id="o" style="color:#eee;font:11px monospace"></pre><script>
+const q=new URLSearchParams(location.search); const f=document.getElementById('f')
+const W=+(q.get('w')||390), H=+(q.get('h')||800), NAV=+(q.get('nav')||0), MODE=q.get('mode')||'measured'
+document.documentElement.style.setProperty('--w',W+'px')
+document.documentElement.style.setProperty('--h',H+'px')
+q.delete('w');q.delete('h');q.delete('nav');q.delete('mode')
+f.src='/visual-harness.html?'+q.toString()
+const iv=setInterval(()=>{try{
+  const d=f.contentDocument, w=f.contentWindow
+  if(!d||d.title!=='READY')return
+  clearInterval(iv)
+  const de=d.documentElement
+
+  // "visible" is what the user can actually see: the viewport minus whatever
+  // the system navigation bar covers.
+  const visible = H - NAV
+  if (NAV > 0) {
+    if (MODE === 'measured') {
+      // The browser reports a shorter visual viewport (the common Android case).
+      de.style.setProperty('--app-height', visible + 'px')
+    } else {
+      // Edge-to-edge: viewport stays full height, the inset describes the bar.
+      const st=d.createElement('style')
+      st.textContent = ':root{--sa-bottom:'+NAV+'px}.actionbar{padding-bottom:calc(12px + '+NAV+'px)!important}'
+      d.head.appendChild(st)
+    }
+  }
+  setTimeout(()=>{
+    const bar=d.querySelector('.actionbar').getBoundingClientRect()
+    const btn=d.querySelector('#download-btn').getBoundingClientRect()
+    const collage=d.querySelector('#collage-container').getBoundingClientRect()
+    document.getElementById('o').textContent=JSON.stringify({
+      scenario: NAV ? MODE+' nav bar '+NAV+'px' : 'no nav bar',
+      cssViewport: de.clientWidth+'x'+de.clientHeight,
+      visibleTo: visible,
+      appHeightVar: getComputedStyle(de).getPropertyValue('--app-height').trim(),
+      shellHeight: d.querySelector('.app-shell').getBoundingClientRect().height.toFixed(0),
+      downloadBtn: `top=${btn.top.toFixed(0)} bottom=${btn.bottom.toFixed(0)}`,
+      downloadFullyVisible: btn.bottom <= visible+1 && btn.top >= 0 ? 'OK' : 'CLIPPED by '+(btn.bottom-visible).toFixed(0),
+      actionbarFullyVisible: bar.bottom <= visible+1 ? 'OK' : 'CLIPPED by '+(bar.bottom-visible).toFixed(0),
+      collageVisible: collage.top>=0 && collage.bottom<=visible+1 ? 'OK':'CLIPPED'
+    },null,1)
+    document.title='DONE'
+  },400)
+}catch(e){document.getElementById('o').textContent='ERR '+e.message;document.title='DONE'}},80)
+</script></body></html>

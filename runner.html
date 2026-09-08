@@ -1,0 +1,12 @@
+<!doctype html><html><head><meta charset="UTF-8"><title>runner</title>
+<style>html,body{margin:0}iframe{width:var(--w,390px);height:var(--h,844px);border:0}</style></head>
+<body><iframe id="f" src="/test-harness.html"></iframe><pre id="o" style="font:11px monospace"></pre><script>
+const q=new URLSearchParams(location.search)
+document.documentElement.style.setProperty('--w',(q.get('w')||390)+'px')
+document.documentElement.style.setProperty('--h',(q.get('h')||844)+'px')
+const f=document.getElementById('f')
+const iv=setInterval(()=>{try{const d=f.contentDocument
+ if(!d||d.title!=='DONE')return
+ clearInterval(iv); document.getElementById('o').textContent=d.getElementById('report').textContent; document.title='DONE'
+}catch(e){document.getElementById('o').textContent='ERR '+e.message;document.title='DONE'}},100)
+</script></body></html>
