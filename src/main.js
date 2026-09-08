@@ -1032,14 +1032,10 @@ function setupCanvasInteraction(canvas, side) {
     if (state.interaction.isPinching && e.touches && e.touches.length === 2) {
       const spread = touchDistance(e.touches[0], e.touches[1])
       if (initialPinchDist > 0 && state.interaction.selectedArrowIndex !== -1) {
-        const ratio = spread / initialPinchDist
-        let newSize = initialArrowSize * ratio
-        newSize = Math.max(2, Math.min(100, newSize))
-        state.edits[side].arrows[state.interaction.selectedArrowIndex].size = newSize
-        state.arrowSettings.size = newSize
-        elements.arrowSize.value = String(Math.round(newSize))
-        elements.arrowSizeVal.textContent = String(Math.round(newSize))
-        redrawAll()
+        // Route pinch through the same setter as the slider and the steppers.
+        // Clamping here separately let pinch reach sizes the slider could not
+        // represent, so the readout and the slider drifted apart.
+        setArrowSize(initialArrowSize * (spread / initialPinchDist))
       }
       return
     }
