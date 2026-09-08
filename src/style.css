@@ -352,67 +352,63 @@ body {
 }
 
 
-/* Comparison Section */
+/* Comparison Section
+   ------------------------------------------------------------------
+   The preview is a true WYSIWYG of the exported file. JS sets three custom
+   properties from the same geometry the exporter uses:
+
+     --collage-aspect  outer width / outer height of the finished collage
+     --collage-frame   the white border around the pair
+     --collage-gap     the white gutter between the two panes
+     --grow            per pane flex weight (aspect side by side, 1/aspect stacked)
+
+   With those in place the panes land at exactly the proportions the download
+   will have, so an arrow dropped on the preview lands in the same spot in the
+   exported JPEG. */
 .collage-container {
   display: flex;
-  flex-direction: row;
-  /* Default side-by-side; overridden to stacked on narrow screens below */
   width: 100%;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
+  /* Cap the height without breaking the ratio: bound the width instead. */
+  max-width: calc(var(--preview-max-height, 72vh) * var(--collage-aspect, 1));
+  margin-inline: auto;
+  aspect-ratio: var(--collage-aspect, 1);
+  padding: var(--collage-frame, 0px);
+  gap: var(--collage-gap, 0px);
+  background: #ffffff;
   border-radius: var(--radius-xl);
   overflow: hidden;
-  box-shadow: var(--shadow-lg);
-  aspect-ratio: auto;
-  height: auto;
-  /* Shrink to fit content */
-  align-items: flex-start;
-  /* Prevent stretching if one is shorter? No, stretch is default for flex row. keep default or stretch */
+  box-shadow: var(--shadow-lg), 0 0 0 1px var(--border-color);
 }
 
 .collage-side {
-  flex: 1;
-  min-width: 0;
   position: relative;
+  flex-grow: var(--grow, 1);
+  flex-shrink: 1;
+  flex-basis: 0;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
-  display: flex;
-  /* Center content */
-  /* Center content */
-  align-items: center;
-  justify-content: center;
-  background: white;
-  /* Match Download */
+  background: #ffffff;
 }
 
-.collage-side:first-child {
-  border-right: 2px solid #e2e8f0;
-  /* Visible separator */
+.collage-container.layout-horizontal {
+  flex-direction: row;
 }
 
-/* Default to a stacked layout on narrow screens so each image stays large enough
-   to place arrows accurately; explicit .layout-horizontal (via the Layout button)
-   overrides this back to side-by-side. */
+.collage-container.layout-vertical {
+  flex-direction: column;
+}
+
 @media (max-width: 640px) {
-  .collage-container:not(.layout-horizontal) {
-    flex-direction: column;
-  }
-
-  .collage-container:not(.layout-horizontal) .collage-side {
-    flex: none;
-    width: 100%;
-    height: auto;
-  }
-
-  .collage-container:not(.layout-horizontal) .collage-side:first-child {
-    border-right: none;
-    border-bottom: 2px solid #e2e8f0;
+  .collage-container {
+    --preview-max-height: 64vh;
   }
 }
 
 /* Active-side indicator while a tool is open, so it's clear which image edits apply to */
 body.arrow-mode .collage-side.is-selected,
 body.filter-mode .collage-side.is-selected {
-  box-shadow: inset 0 0 0 3px var(--primary), 0 0 0 4px rgba(99, 102, 241, 0.15);
+  box-shadow: inset 0 0 0 3px var(--primary);
 }
 
 body.arrow-mode .collage-side.is-selected::before,
@@ -444,12 +440,15 @@ body.filter-mode .collage-side {
 
 .collage-image {
   width: 100%;
-  height: auto;
+  height: 100%;
   display: block;
+  /* The pane already carries the image's own aspect ratio, so `contain` is an
+     exact fit rather than a letterbox. */
   object-fit: contain;
-  max-height: 85vh;
 }
 
+/* Badge geometry is em-based so it matches drawPaneBadge() in the exporter,
+   which derives every dimension from the same font size. */
 .collage-badge {
   position: absolute;
   bottom: 16px;
@@ -457,19 +456,17 @@ body.filter-mode .collage-side {
   transform: translateX(-50%);
   background: #dc2626;
   color: white;
-  padding: 4px 12px;
-  border-radius: 4px;
-  /* Sharp corners like download */
+  padding: 0.42em 0.75em;
+  border-radius: 0.25em;
   font-size: 0.75rem;
-  /* Slightly smaller to match visual scale */
-  font-weight: bold;
-  letter-spacing: 0.05em;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
+  white-space: nowrap;
   z-index: 100;
   pointer-events: auto;
   cursor: grab;
-  /* Removed border to match download */
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   user-select: none;
   touch-action: none;
 }
@@ -482,40 +479,57 @@ body.filter-mode .collage-side {
   background: #16a34a;
 }
 
-/* Vertical Layout Mode */
-.collage-container.layout-vertical {
-  flex-direction: column !important;
-  height: auto !important;
-  min-height: 0 !important;
-  /* Force reset */
+/* Layout status line: always says which layout is live and where it came from,
+   so the Layout button is never a guess. */
+.layout-status {
+  margin-top: 0.875rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
 }
 
-.collage-container.layout-vertical .collage-side {
-  flex: none !important;
-  /* Prevent ANY stretching */
-  width: 100%;
-  height: auto !important;
+.layout-status:empty {
+  display: none;
 }
 
-.collage-container.layout-vertical .collage-side:first-child {
-  border-right: none;
-  border-bottom: 2px solid #e2e8f0;
+.layout-status strong {
+  color: var(--slate-700);
+  font-weight: 600;
 }
 
-/* Explicit override to force side-by-side even on narrow screens */
-.collage-container.layout-horizontal {
-  flex-direction: row !important;
+.layout-btn__icon {
+  display: inline-flex;
+  align-items: center;
 }
 
-.collage-container.layout-horizontal .collage-side {
-  flex: 1 !important;
-  width: auto !important;
-  height: auto !important;
+/* Toast */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translate(-50%, 12px);
+  z-index: 10000;
+  padding: 0.75rem 1.25rem;
+  border-radius: 999px;
+  background: var(--slate-900);
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.28);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
-.collage-container.layout-horizontal .collage-side:first-child {
-  border-right: 2px solid #e2e8f0 !important;
-  border-bottom: none !important;
+.toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    transition: opacity 0.01ms;
+  }
 }
 
 /* Canvas Overlay */
@@ -689,18 +703,6 @@ body.arrow-mode .drawing-canvas {
 
 @media (max-width: 768px) {
   .controls {
-    flex-direction: column;
-    gap: 0.75rem;
-    padding: 1.25rem;
-  }
-
-  .btn {
-    width: 100%;
-  }
-}
-
-@media (max-width: 768px) {
-  .controls {
     flex-direction: row;
     border-radius: 16px;
     gap: 0.625rem;
@@ -724,12 +726,22 @@ body.arrow-mode .drawing-canvas {
     font-size: 1.25em;
   }
 
-  .btn span:not(.icon) {
+  .btn--sm {
+    padding: 0.625rem 0.875rem;
+  }
+}
+
+/* Below this the five action buttons no longer fit on one row with their
+   labels, so they collapse to icons. Every one of them carries a title and an
+   aria-label, and the live layout is spelled out in .layout-status. */
+@media (max-width: 560px) {
+  .controls .btn__label {
     display: none;
   }
 
-  .btn--sm {
-    padding: 0.625rem 0.875rem;
+  .controls .btn {
+    padding: 0.75rem;
+    gap: 0;
   }
 }
 

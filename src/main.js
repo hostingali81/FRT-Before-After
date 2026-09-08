@@ -9,6 +9,22 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024
 const MAX_EXPORT_PIXELS = 16_000_000
 const MAX_EXPORT_SIDE = 8_192
 
+// Collage framing, expressed as a fraction of the "matched" dimension (the shared
+// height in side-by-side, the shared width when stacked). Ratios instead of fixed
+// pixels keep a 400px and a 4000px export looking identical, and let the live
+// preview reproduce the exported frame exactly.
+const FRAME_RATIO = 0.025
+const GAP_RATIO = 0.025
+const BADGE_RATIO = 0.055
+
+// Arrow sizes are stored against this reference so they scale identically in the
+// on-screen canvas and in the full-resolution export.
+const ARROW_REFERENCE_BASE = 1000
+
+// The shape the smart layout aims for. Square reads well everywhere images get
+// shared (WhatsApp, Instagram, docs) and neither crops nor letterboxes badly.
+const TARGET_ASPECT = 1
+
 function createEdits() {
   return {
     arrows: [],
@@ -25,7 +41,14 @@ const state = {
   afterImage: null,
   activeSide: 'after', // 'before' or 'after'
   activeTool: null,    // 'arrow' or 'filter' or null
-  layoutMode: 'horizontal', // 'horizontal' or 'vertical'
+
+  // What the user asked for, and what that currently resolves to.
+  layoutMode: 'auto',          // 'auto' | 'horizontal' | 'vertical'
+  resolvedLayout: 'horizontal',
+
+  // Natural pixel size of each source image - the input to the layout engine.
+  beforeMeta: null,            // { w, h }
+  afterMeta: null,
 
   // Arrow Interaction State
   interaction: {
@@ -33,12 +56,13 @@ const state = {
     dragMode: null, // 'start', 'end', 'body'
     dragStartPos: null, // {x, y} at mousedown
     initialArrow: null, // Copy of arrow before drag (for delta calcs)
+    isPinching: false,
     selectedArrowIndex: -1
   },
 
   arrowSettings: {
     color: '#dc2626',
-    size: 18 // Default thicker for object look
+    size: 20 // Keep in sync with the #arrow-size slider default
   },
 
   edits: {
@@ -101,9 +125,9 @@ function initApp() {
   renderHTML()
   cacheElements()
   attachEventListeners()
+  applyLayout()
   setupPWA()
   setupConnectionStatus()
-  console.log('📱 App Initialized: Object-based Arrows Mode')
 }
 
 // ============================================
@@ -112,6 +136,16 @@ function initApp() {
 let deferredPrompt;
 
 function setupPWA() {
+  if (elements.installBtn) {
+    elements.installBtn.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      elements.installBtn.style.display = 'none';
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+    });
+  }
+
   window.addEventListener('beforeinstallprompt', (e) => {
     // Prevent Chrome 67 and earlier from automatically showing the prompt
     e.preventDefault();
@@ -120,22 +154,6 @@ function setupPWA() {
     // Update UI to notify the user they can add to home screen
     if (elements.installBtn) {
       elements.installBtn.style.display = 'block';
-
-      elements.installBtn.addEventListener('click', () => {
-        // Hide our user interface that shows our A2HS button
-        elements.installBtn.style.display = 'none';
-        // Show the prompt
-        deferredPrompt.prompt();
-        // Wait for the user to respond to the prompt
-        deferredPrompt.userChoice.then((choiceResult) => {
-          if (choiceResult.outcome === 'accepted') {
-            console.log('User accepted the A2HS prompt');
-          } else {
-            console.log('User dismissed the A2HS prompt');
-          }
-          deferredPrompt = null;
-        });
-      });
     }
   });
 }
@@ -300,7 +318,7 @@ function renderHTML() {
            <div class="size-control">
               <span class="size-label">Size</span>
               <button type="button" class="btn-size" id="btn-size-minus" aria-label="Decrease arrow size">-</button>
-              <input type="range" id="arrow-size" min="5" max="35" value="20">
+              <input type="range" id="arrow-size" min="5" max="35" value="20" aria-label="Arrow size">
               <button type="button" class="btn-size" id="btn-size-plus" aria-label="Increase arrow size">+</button>
            </div>
          </div>
@@ -327,7 +345,7 @@ function renderHTML() {
 
       <!-- Main Canvas Area -->
       <div class="card">
-        <div class="collage-container" id="collage-container">
+        <div class="collage-container layout-horizontal" id="collage-container">
           <!-- Before Side -->
           <div class="collage-side" id="side-before" data-side="before">
             <img id="comparison-before" class="collage-image" />
@@ -343,27 +361,30 @@ function renderHTML() {
           </div>
         </div>
 
+        <!-- Layout status: always says which layout is live and why -->
+        <p class="layout-status" id="layout-status" aria-live="polite"></p>
+
         <!-- Action Buttons -->
         <div class="controls">
-          <button class="btn btn--secondary" id="swap-btn">
+          <button class="btn btn--secondary" id="swap-btn" title="Swap before and after" aria-label="Swap before and after">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
-            Swap
+            <span class="btn__label">Swap</span>
           </button>
           <button class="btn btn--secondary" id="layout-btn">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="12" x2="21" y2="12"></line></svg>
-            Layout
+            <span class="layout-btn__icon" id="layout-btn-icon"></span>
+            <span class="btn__label" id="layout-btn-label">Layout</span>
           </button>
-          <button class="btn btn--primary" id="share-btn">
+          <button class="btn btn--primary" id="share-btn" title="Share the comparison" aria-label="Share the comparison">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
-            Share
+            <span class="btn__label">Share</span>
           </button>
-          <button class="btn btn--primary" id="download-btn">
+          <button class="btn btn--primary" id="download-btn" title="Download the comparison" aria-label="Download the comparison">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-            Download
+            <span class="btn__label">Download</span>
           </button>
-          <button class="btn btn--accent" id="reset-btn">
+          <button class="btn btn--accent" id="reset-btn" title="Start over" aria-label="Start over">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><polyline points="23 20 23 14 17 14"></polyline><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path></svg>
-            Reset
+            <span class="btn__label">Reset</span>
           </button>
         </div>
       </div>
@@ -388,6 +409,10 @@ function cacheElements() {
   elements.comparisonImageAfter = document.getElementById('comparison-after')
   elements.swapBtn = document.getElementById('swap-btn')
   elements.layoutBtn = document.getElementById('layout-btn')
+  elements.layoutBtnIcon = document.getElementById('layout-btn-icon')
+  elements.layoutBtnLabel = document.getElementById('layout-btn-label')
+  elements.layoutStatus = document.getElementById('layout-status')
+  elements.collageContainer = document.getElementById('collage-container')
   elements.resetBtn = document.getElementById('reset-btn')
   elements.shareBtn = document.getElementById('share-btn')
   elements.downloadBtn = document.getElementById('download-btn')
@@ -444,9 +469,15 @@ function attachEventListeners() {
 
   // Keyboard Shortcuts
   window.addEventListener('keydown', (e) => {
-    if ((e.key === 'Delete' || e.key === 'Backspace') && state.activeTool === 'arrow') {
-      deleteArrow()
-    }
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return
+    if (state.activeTool !== 'arrow') return
+
+    // Don't eat the key while a slider or any other control has focus.
+    const target = e.target
+    if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return
+
+    e.preventDefault()
+    deleteArrow()
   })
 
   // Tool Toggling
@@ -501,14 +532,16 @@ function attachEventListeners() {
   setupCanvasInteraction(elements.canvasBefore, 'before')
   setupCanvasInteraction(elements.canvasAfter, 'after')
 
-  window.addEventListener('resize', () => {
-    requestAnimationFrame(() => {
-      resizeCanvas(elements.canvasBefore)
-      resizeCanvas(elements.canvasAfter)
-      redrawAll()
-      updateBadgePositions()
-    })
-  })
+  // One debounced handler for every reflow trigger. Mobile browsers fire resize
+  // on every address-bar show/hide, and re-measuring the canvases on each of
+  // those is what used to make dragging stutter mid-scroll.
+  let resizeTimer = 0
+  const onViewportChange = () => {
+    clearTimeout(resizeTimer)
+    resizeTimer = setTimeout(() => requestAnimationFrame(refreshCollageGeometry), 120)
+  }
+  window.addEventListener('resize', onViewportChange)
+  window.addEventListener('orientationchange', onViewportChange)
 
   // Badge Interaction
   setupBadgeDrag(elements.badgeBefore, 'before')
@@ -544,11 +577,21 @@ function setupUploadArea(area, side) {
 }
 function updateBadgePositions() {
   const setPos = (el, pos, container) => {
-    if (!container.clientWidth || !container.clientHeight) return
-    el.style.left = `${pos.x * 100}%`
-    el.style.top = `${pos.y * 100}%`
-    el.style.bottom = 'auto'
-    el.style.transform = 'translate(-50%, -50%)'
+    const cw = container.clientWidth
+    const ch = container.clientHeight
+    if (!cw || !ch) return
+
+    // Mirror drawPaneBadge(): the pill stays fully inside its own pane, so the
+    // preview shows exactly what the exported file will.
+    const halfW = el.offsetWidth / 2 / cw
+    const halfH = el.offsetHeight / 2 / ch
+    const x = clamp(pos.x, halfW, 1 - halfW)
+    const y = clamp(pos.y, halfH, 1 - halfH)
+
+    el.style.left = (x * 100) + "%"
+    el.style.top = (y * 100) + "%"
+    el.style.bottom = "auto"
+    el.style.transform = "translate(-50%, -50%)"
   }
 
   setPos(elements.badgeBefore, state.edits.before.badge, elements.sideBefore)
@@ -574,27 +617,13 @@ function setupBadgeDrag(el, side) {
     const clientX = e.touches ? e.touches[0].clientX : e.clientX
     const clientY = e.touches ? e.touches[0].clientY : e.clientY
 
-    // Calculate normalized position relative to CONTAINER (not image content, for UI simplicity)
-    // Or should it be image content? If image content, it stays with image features.
-    // User asked "adjust position". Image content is safer for responsive layout.
+    // Normalised against the pane, so the badge keeps its spot on the photo at
+    // any preview size and lands in the same place in the export.
+    const x = clamp((clientX - rect.left) / rect.width, 0, 1)
+    const y = clamp((clientY - rect.top) / rect.height, 0, 1)
 
-    // Let's use CONTAINER coordinates for simpler UI feeling first?
-    // No, normalized is best.
-
-    let x = (clientX - rect.left) / rect.width
-    let y = (clientY - rect.top) / rect.height
-
-    x = Math.max(0.05, Math.min(0.95, x))
-    y = Math.max(0.05, Math.min(0.95, y))
-
-    // Update State
     state.edits[side].badge = { x, y }
-
-    // Update UI
-    el.style.left = (x * 100) + '%'
-    el.style.top = (y * 100) + '%'
-    el.style.bottom = 'auto'
-    el.style.transform = 'translate(-50%, -50%)'
+    updateBadgePositions()
   }
 
   const onEnd = () => {
@@ -640,10 +669,14 @@ function toggleTool(tool) {
     document.body.classList.remove('arrow-mode', 'filter-mode')
     if (tool === 'arrow') {
       document.body.classList.add('arrow-mode')
-      // Auto-add arrow if none exist on active side? Or just always add one?
-      // User request: "Arrows button par click karte hi ek ek arrow add ho jaye"
-      // Let's add one. 
-      addArrow()
+      // Start the user off with one arrow, but only when the selected image has
+      // none yet - otherwise toggling the tool piles up duplicates.
+      if (state.edits[state.activeSide].arrows.length === 0) {
+        addArrow()
+      } else {
+        state.interaction.selectedArrowIndex = state.edits[state.activeSide].arrows.length - 1
+      }
+      updateDeleteBtn()
     }
     if (tool === 'filter') document.body.classList.add('filter-mode')
 
@@ -746,24 +779,19 @@ function setupCanvasInteraction(canvas, side) {
       y: rect.y + norm.y * rect.h
     })
 
-    const HANDLE_R = 30
-    const ARROW_BODY_TOLERANCE = 30
-
-    // Pinch helpers
-    function getDist(p1, p2) {
-      const dx = p1.clientX - p2.clientX
-      const dy = p1.clientY - p2.clientY
-      return Math.sqrt(dx * dx + dy * dy)
-    }
+    // Tolerances are authored in CSS pixels but the canvas is a device-pixel
+    // backing store, so on a 3x phone a flat "30" was really a 10px target.
+    const cssRect = canvas.getBoundingClientRect()
+    const pxPerCss = cssRect.width ? canvas.width / cssRect.width : 1
+    const HANDLE_R = 24 * pxPerCss
+    const ARROW_BODY_TOLERANCE = 16 * pxPerCss
 
     // Check handles of SELECTED arrow first
-    if (state.activeSide === side && state.interaction.selectedArrowIndex !== -1) {
+    const selected = state.activeSide === side ? arrows[state.interaction.selectedArrowIndex] : null
+    if (selected) {
       const idx = state.interaction.selectedArrowIndex
-      const arrow = arrows[idx]
-      if (!arrow) return null
-
-      const pStart = toPx(arrow.start)
-      const pEnd = toPx(arrow.end)
+      const pStart = toPx(selected.start)
+      const pEnd = toPx(selected.end)
 
       if (dist(pos, pStart) <= HANDLE_R) return { type: 'start', index: idx }
       if (dist(pos, pEnd) <= HANDLE_R) return { type: 'end', index: idx }
@@ -775,7 +803,9 @@ function setupCanvasInteraction(canvas, side) {
       const pStart = toPx(arrow.start)
       const pEnd = toPx(arrow.end)
 
-      if (distToSegment(pos, pStart, pEnd) <= Math.max(ARROW_BODY_TOLERANCE, arrow.size)) {
+      // Fat arrows should stay grabbable along their whole painted width.
+      const paintedHalfWidth = arrow.size * Math.max(rect.w, rect.h) / ARROW_REFERENCE_BASE
+      if (distToSegment(pos, pStart, pEnd) <= Math.max(ARROW_BODY_TOLERANCE, paintedHalfWidth)) {
         return { type: 'body', index: i }
       }
     }
@@ -791,19 +821,23 @@ function setupCanvasInteraction(canvas, side) {
 
     // Pinch Start
     if (e.touches && e.touches.length === 2) {
+      e.preventDefault()
       state.interaction.isPinching = true
-      initialPinchDist = getDist(e.touches[0], e.touches[1])
+      initialPinchDist = touchDistance(e.touches[0], e.touches[1])
       if (state.interaction.selectedArrowIndex !== -1) {
         initialArrowSize = state.edits[side].arrows[state.interaction.selectedArrowIndex].size
       }
       return
     }
 
-    e.preventDefault()
     selectSide(side)
 
     const pos = getMousePos(e)
     const hit = hitTest(pos)
+
+    // Only claim the gesture when it actually lands on an arrow, so a swipe over
+    // an empty part of the image still scrolls the page on touch devices.
+    if (hit || !e.touches) e.preventDefault()
 
     if (hit) {
       state.interaction.selectedArrowIndex = hit.index
@@ -829,17 +863,19 @@ function setupCanvasInteraction(canvas, side) {
 
   function handleMove(e) {
     if (state.activeTool !== 'arrow') return
+    if (!state.interaction.isDragging && !state.interaction.isPinching) return
     e.preventDefault()
 
     // Pinch Move
     if (state.interaction.isPinching && e.touches && e.touches.length === 2) {
-      const dist = getDist(e.touches[0], e.touches[1])
+      const spread = touchDistance(e.touches[0], e.touches[1])
       if (initialPinchDist > 0 && state.interaction.selectedArrowIndex !== -1) {
-        const ratio = dist / initialPinchDist
+        const ratio = spread / initialPinchDist
         let newSize = initialArrowSize * ratio
         newSize = Math.max(2, Math.min(100, newSize))
         state.edits[side].arrows[state.interaction.selectedArrowIndex].size = newSize
         state.arrowSettings.size = newSize
+        elements.arrowSize.value = String(Math.round(newSize))
         redrawAll()
       }
       return
@@ -940,6 +976,12 @@ function setupCanvasInteraction(canvas, side) {
 }
 
 // Math Helpers
+function touchDistance(p1, p2) {
+  const dx = p1.clientX - p2.clientX
+  const dy = p1.clientY - p2.clientY
+  return Math.sqrt(dx * dx + dy * dy)
+}
+
 function dist(p1, p2) {
   return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2))
 }
@@ -999,8 +1041,7 @@ function redrawCanvas(canvas, arrows, selectedIdx, rect) {
   // Use min dimension for scaling to handle aspect ratio differences between Mobile (Vertical) and Desktop
   // Mobile: 350x400 (min 350). Desktop: 600x400 (min 400).
   // This keeps the scale factor much closer (0.35 vs 0.4) compared to width-only (0.58 vs 1.0).
-  const REFERENCE_BASE = 1000
-  const visualScale = Math.max(0.1, Math.min(rect.w, rect.h) / REFERENCE_BASE)
+  const visualScale = Math.max(0.1, Math.min(rect.w, rect.h) / ARROW_REFERENCE_BASE)
 
   arrows.forEach((arrow, i) => {
     const isSelected = i === selectedIdx
@@ -1141,22 +1182,28 @@ function updateFilterUI() {
 
 function updateFilters() {
   const filters = state.edits[state.activeSide].filters
-  filters.brightness = elements.brightnessSlider.value
-  filters.contrast = elements.contrastSlider.value
-  filters.saturate = elements.saturateSlider.value
+  filters.brightness = Number(elements.brightnessSlider.value)
+  filters.contrast = Number(elements.contrastSlider.value)
+  filters.saturate = Number(elements.saturateSlider.value)
 
   updateFilterUI()
   applyCSSFilters()
 }
 
-function applyCSSFilters() {
-  const b = state.edits.before.filters
-  elements.comparisonImageBefore.style.filter =
-    `brightness(${b.brightness}%) contrast(${b.contrast}%) saturate(${b.saturate}%)`
+// Returns the CSS filter for a side, or 'none' when it is untouched - handing
+// the browser 'none' avoids promoting the image to its own compositing layer.
+function filterStringFor(side) {
+  const f = state.edits[side].filters
+  const b = Number(f.brightness)
+  const c = Number(f.contrast)
+  const sat = Number(f.saturate)
+  if (b === 100 && c === 100 && sat === 100) return 'none'
+  return `brightness(${b}%) contrast(${c}%) saturate(${sat}%)`
+}
 
-  const a = state.edits.after.filters
-  elements.comparisonImageAfter.style.filter =
-    `brightness(${a.brightness}%) contrast(${a.contrast}%) saturate(${a.saturate}%)`
+function applyCSSFilters() {
+  elements.comparisonImageBefore.style.filter = filterStringFor('before')
+  elements.comparisonImageAfter.style.filter = filterStringFor('after')
 }
 
 function resetCurrentFilters() {
@@ -1187,40 +1234,48 @@ async function processImageFile(file, type) {
     return
   }
 
+  // Blob URLs instead of base64 data URLs: a 20 MB photo would otherwise become
+  // a ~27 MB string held in memory twice over, which is what pushed phones into
+  // reloading the tab mid-edit.
+  const imageUrl = URL.createObjectURL(file)
+  const previousUrl = type === 'before' ? state.beforeImage : state.afterImage
+
+  let image
   try {
-    const imageUrl = await readImageFile(file)
-    await loadImage(imageUrl)
-
-    state.edits[type] = createEdits()
-    state.interaction.selectedArrowIndex = -1
-    applyCSSFilters()
-
-    if (type === 'before') {
-      state.beforeImage = imageUrl
-      elements.beforePreview.src = imageUrl
-      elements.beforePreview.style.display = 'block' // Force show
-      elements.beforeUploadArea.classList.add('has-image') // Trigger CSS state
-    } else {
-      state.afterImage = imageUrl
-      elements.afterPreview.src = imageUrl
-      elements.afterPreview.style.display = 'block' // Force show
-      elements.afterUploadArea.classList.add('has-image') // Trigger CSS state
-    }
-
-    await checkAndShowComparison()
+    image = await loadImage(imageUrl)
   } catch (error) {
+    releaseObjectURL(imageUrl)
     console.error('Image upload failed:', error)
     alert('This image could not be loaded. Please choose a valid image file.')
+    return
   }
+
+  state.edits[type] = createEdits()
+  state.interaction.selectedArrowIndex = -1
+  applyCSSFilters()
+
+  const meta = { w: image.naturalWidth, h: image.naturalHeight }
+
+  if (type === 'before') {
+    state.beforeImage = imageUrl
+    state.beforeMeta = meta
+    elements.beforePreview.src = imageUrl
+    elements.beforePreview.style.display = 'block'
+    elements.beforeUploadArea.classList.add('has-image')
+  } else {
+    state.afterImage = imageUrl
+    state.afterMeta = meta
+    elements.afterPreview.src = imageUrl
+    elements.afterPreview.style.display = 'block'
+    elements.afterUploadArea.classList.add('has-image')
+  }
+
+  await checkAndShowComparison()
+  releaseObjectURL(previousUrl)
 }
 
-function readImageFile(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result)
-    reader.onerror = () => reject(reader.error || new Error('Could not read file'))
-    reader.readAsDataURL(file)
-  })
+function releaseObjectURL(url) {
+  if (url && url.startsWith('blob:')) URL.revokeObjectURL(url)
 }
 
 function loadImage(src) {
@@ -1244,103 +1299,297 @@ async function waitForImageElement(image) {
 }
 
 async function checkAndShowComparison() {
-  if (state.beforeImage && state.afterImage) {
-    elements.comparisonImageBefore.src = state.beforeImage
-    elements.comparisonImageAfter.src = state.afterImage
-    elements.comparisonSection.classList.add('active')
+  if (!state.beforeImage || !state.afterImage) return
 
-    // Reveal all UI, collapse the upload zones into a compact re-select bar
-    elements.app.classList.add('reveal-ui')
-    elements.app.classList.add('images-ready')
+  const firstReveal = !elements.comparisonSection.classList.contains('active')
 
-    await Promise.all([
-      waitForImageElement(elements.comparisonImageBefore),
-      waitForImageElement(elements.comparisonImageAfter)
-    ])
+  elements.comparisonImageBefore.src = state.beforeImage
+  elements.comparisonImageAfter.src = state.afterImage
+  elements.comparisonSection.classList.add('active')
 
-    resizeCanvas(elements.canvasBefore)
-    resizeCanvas(elements.canvasAfter)
-    selectSide('after')
-    updateBadgePositions()
-    updateBadgeSize()
-    redrawAll()
+  // Reveal all UI, collapse the upload zones into a compact re-select bar
+  elements.app.classList.add("reveal-ui")
+  elements.app.classList.add("images-ready")
+
+  // Lay out before the first paint. The engine only needs the natural sizes,
+  // which are already known, so the collage never flashes at the wrong shape
+  // while the browser decodes the images.
+  applyLayout()
+  selectSide(state.activeSide)
+
+  await Promise.all([
+    waitForImageElement(elements.comparisonImageBefore),
+    waitForImageElement(elements.comparisonImageAfter)
+  ]).catch(() => {})
+
+  // Re-measure once the panes have their final size on screen.
+  refreshCollageGeometry()
+
+  if (firstReveal) {
     elements.comparisonSection.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 }
 
-function toggleLayout() {
-  state.layoutMode = state.layoutMode === 'horizontal' ? 'vertical' : 'horizontal'
-  const isVertical = state.layoutMode === 'vertical'
+// ============================================
+// SMART LAYOUT ENGINE
+// ============================================
+// There are two ways to place a pair of images, and both are fully determined
+// by the two aspect ratios:
+//
+//   Side by side matches the HEIGHTS, so the widths add up -> aspect a1 + a2
+//   Top & bottom matches the WIDTHS, so the heights add up -> aspect 1/(1/a1 + 1/a2)
+//
+// Portrait photos (a < 1) therefore land close to square side by side and get
+// very tall when stacked; landscape photos do the exact opposite. Scoring both
+// candidates against a square target reproduces that rule of thumb, and keeps
+// working for mixed or extreme pairs where the rule of thumb runs out.
 
-  const container = document.getElementById('collage-container')
+function aspectOf(meta) {
+  if (!meta || !meta.w || !meta.h) return 1
+  return meta.w / meta.h
+}
+
+// Geometry of the finished collage in "base units", where the matched dimension
+// (shared height side by side, shared width when stacked) is exactly 1. The
+// exporter runs the same function, so preview and download can never drift.
+function collageGeometry(mode, a1, a2) {
+  const gap = GAP_RATIO
+  const frame = FRAME_RATIO
+
+  if (mode === 'vertical') {
+    const h1 = 1 / a1
+    const h2 = 1 / a2
+    return {
+      sizes: [{ w: 1, h: h1 }, { w: 1, h: h2 }],
+      totalW: 1 + frame * 2,
+      totalH: h1 + h2 + gap + frame * 2,
+      gap,
+      frame
+    }
+  }
+
+  return {
+    sizes: [{ w: a1, h: 1 }, { w: a2, h: 1 }],
+    totalW: a1 + a2 + gap + frame * 2,
+    totalH: 1 + frame * 2,
+    gap,
+    frame
+  }
+}
+
+function collageAspect(mode, a1, a2) {
+  const geo = collageGeometry(mode, a1, a2)
+  return geo.totalW / geo.totalH
+}
+
+// Distance from the target shape, measured in log space so that "twice as wide"
+// and "twice as tall" are penalised equally.
+function layoutCost(aspect) {
+  return Math.abs(Math.log(aspect / TARGET_ASPECT))
+}
+
+function computeSmartLayout() {
+  const a1 = aspectOf(state.beforeMeta)
+  const a2 = aspectOf(state.afterMeta)
+
+  const horizontal = layoutCost(collageAspect('horizontal', a1, a2))
+  const vertical = layoutCost(collageAspect('vertical', a1, a2))
+
+  // Ties (square images, or a portrait/landscape pair that mirror each other)
+  // fall back to side by side: that is the conventional left-to-right read.
+  return vertical < horizontal - 1e-6 ? 'vertical' : 'horizontal'
+}
+
+const LAYOUT_ICONS = {
+  // Split down the middle = two images beside each other
+  horizontal: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="3" x2="12" y2="21"></line></svg>',
+  // Split across the middle = one image above the other
+  vertical: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="12" x2="21" y2="12"></line></svg>'
+}
+
+const LAYOUT_NAMES = {
+  horizontal: 'Side by side',
+  vertical: 'Top & bottom'
+}
+
+function orientationName(meta) {
+  const a = aspectOf(meta)
+  if (a > 1.05) return 'landscape'
+  if (a < 0.95) return 'portrait'
+  return 'square'
+}
+
+// The cycle is derived from what is currently on screen rather than being a
+// fixed order, so the very first tap always produces a visible change. From
+// auto we jump straight to the opposite layout; from there the only remaining
+// stop is auto again.
+function nextLayoutMode() {
+  if (state.layoutMode === 'auto') {
+    return state.resolvedLayout === 'horizontal' ? 'vertical' : 'horizontal'
+  }
+  const other = state.layoutMode === 'horizontal' ? 'vertical' : 'horizontal'
+  return other === computeSmartLayout() ? 'auto' : other
+}
+
+function toggleLayout() {
+  state.layoutMode = nextLayoutMode()
+  applyLayout()
+
+  const name = LAYOUT_NAMES[state.resolvedLayout]
+  showToast(state.layoutMode === 'auto' ? 'Auto layout: ' + name : name)
+}
+
+function applyLayout() {
+  const container = elements.collageContainer
+  if (!container) return
+
+  state.resolvedLayout = state.layoutMode === 'auto' ? computeSmartLayout() : state.layoutMode
+  const isVertical = state.resolvedLayout === 'vertical'
+
+  const a1 = aspectOf(state.beforeMeta)
+  const a2 = aspectOf(state.afterMeta)
+  const geo = collageGeometry(state.resolvedLayout, a1, a2)
+
   container.classList.toggle('layout-vertical', isVertical)
   container.classList.toggle('layout-horizontal', !isVertical)
-  elements.layoutBtn.innerHTML = isVertical ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="3" x2="12" y2="21"></line></svg> Layout' : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="12" x2="21" y2="12"></line></svg> Layout'
+  container.style.setProperty('--collage-aspect', (geo.totalW / geo.totalH).toFixed(5))
 
-  // Re-measure canvas after layout change
-  // Re-measure canvas after layout change
-  requestAnimationFrame(() => {
-    resizeCanvas(elements.canvasBefore)
-    resizeCanvas(elements.canvasAfter)
-    redrawAll()
-    updateBadgeSize() // Scaling update
-  })
+  // Flex weights that give each pane exactly the size the exporter will use:
+  // widths in proportion to aspect side by side, heights in proportion to the
+  // inverse aspect when stacked.
+  elements.sideBefore.style.setProperty('--grow', (isVertical ? 1 / a1 : a1).toFixed(5))
+  elements.sideAfter.style.setProperty('--grow', (isVertical ? 1 / a2 : a2).toFixed(5))
+
+  updateLayoutUI()
+  refreshCollageGeometry()
+}
+
+function updateLayoutUI() {
+  if (!elements.layoutBtn) return
+
+  const resolved = state.resolvedLayout
+  const isAuto = state.layoutMode === 'auto'
+  const name = LAYOUT_NAMES[resolved]
+
+  elements.layoutBtnIcon.innerHTML = LAYOUT_ICONS[resolved]
+  elements.layoutBtnLabel.textContent = isAuto ? 'Auto' : name
+
+  const next = nextLayoutMode()
+  const nextName = next === 'auto' ? 'automatic' : LAYOUT_NAMES[next].toLowerCase()
+  const description = 'Layout: ' + name + (isAuto ? ' (auto)' : '') + '. Tap to switch to ' + nextName + '.'
+  elements.layoutBtn.title = description
+  elements.layoutBtn.setAttribute('aria-label', description)
+
+  if (elements.layoutStatus) {
+    if (!state.beforeMeta || !state.afterMeta) {
+      elements.layoutStatus.textContent = ''
+    } else if (isAuto) {
+      const before = orientationName(state.beforeMeta)
+      const after = orientationName(state.afterMeta)
+      const shape = before === after ? before + ' photos' : 'mixed orientations'
+      elements.layoutStatus.innerHTML = '<strong>' + name + '</strong> &middot; auto-picked for ' + shape
+    } else {
+      elements.layoutStatus.innerHTML = '<strong>' + name + '</strong> &middot; set manually'
+    }
+  }
+}
+
+// The single place that re-measures everything after the box model changes: the
+// white frame, the canvas backing stores, the badges and the arrows.
+function refreshCollageGeometry() {
+  const container = elements.collageContainer
+  if (!container) return
+
+  const a1 = aspectOf(state.beforeMeta)
+  const a2 = aspectOf(state.afterMeta)
+  const geo = collageGeometry(state.resolvedLayout, a1, a2)
+
+  // Convert one "base unit" into pixels from the box the browser gave us, then
+  // express the frame and gutter in the same units the exporter uses.
+  const outerW = container.getBoundingClientRect().width
+  if (outerW > 0) {
+    const basePx = outerW / geo.totalW
+    container.style.setProperty('--collage-frame', (geo.frame * basePx).toFixed(2) + 'px')
+    container.style.setProperty('--collage-gap', (geo.gap * basePx).toFixed(2) + 'px')
+  }
+
+  resizeCanvas(elements.canvasBefore)
+  resizeCanvas(elements.canvasAfter)
+  updateBadgePositions()
+  updateBadgeSize()
+  redrawAll()
 }
 
 function updateBadgeSize() {
-  // Sync live badge size with download logic: min(W,H) * 0.04
-  const container = document.querySelector('.collage-side')
-  if (!container) return
+  // Mirror the exporter exactly: BADGE_RATIO of the pane's shorter side.
+  const apply = (el, sideEl) => {
+    if (!el || !sideEl) return
+    const w = sideEl.clientWidth
+    const h = sideEl.clientHeight
+    if (!w || !h) return
+    el.style.fontSize = Math.max(9, Math.min(w, h) * BADGE_RATIO) + 'px'
+  }
 
-  const w = container.clientWidth
-  const h = container.clientHeight
-  // Logic from download: const fontSize = Math.min(canvasW, canvasH) * 0.04
-  // Live canvas is usually half of download in side-by-side, or full in vertical.
-  // We need to visually approximate. 
-
-  // Use slightly smaller multiplier for CSS pixel values vs Canvas pixels
-  const fontSize = Math.max(12, Math.min(w, h) * 0.05) + 'px'
-
-  document.querySelectorAll('.collage-badge').forEach(el => {
-    el.style.fontSize = fontSize
-    // Scale padding slightly with font?
-    // padding: 0.25em 0.75em
-    el.style.padding = '0.3em 0.9em'
-  })
+  apply(elements.badgeBefore, elements.sideBefore)
+  apply(elements.badgeAfter, elements.sideAfter)
 }
 
-// Add to window resize
-window.addEventListener('resize', () => {
-  resizeCanvas(elements.canvasBefore)
-  resizeCanvas(elements.canvasAfter)
-  updateBadgeSize()
-})
+// ============================================
+// TOAST
+// ============================================
+let toastEl = null
+let toastTimer = 0
 
-function swapImages() {
-  // Swap Logic
+function showToast(message) {
+  if (!toastEl) {
+    toastEl = document.createElement('div')
+    toastEl.className = 'toast'
+    toastEl.setAttribute('role', 'status')
+    document.body.appendChild(toastEl)
+  }
+
+  toastEl.textContent = message
+  toastEl.classList.remove('is-visible')
+  // Restart the entry animation even when a toast is already on screen.
+  void toastEl.offsetWidth
+  toastEl.classList.add('is-visible')
+
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => toastEl.classList.remove('is-visible'), 1800)
+}
+
+async function swapImages() {
   const tempImg = state.beforeImage
   state.beforeImage = state.afterImage
   state.afterImage = tempImg
 
-  // Swap Edits? Usually users expect edits to stick to the image, ie. if I swap, the edits should swap too.
-  // But complex to track if I don't use unique IDs for images. 
-  // For now, simpler: Reset edits or keep them? 
-  // Let's Keep edits on their respective SIDES (before area keeps before arrows). 
-  // Or swap edits? Swapping edits is better UX.
+  const tempMeta = state.beforeMeta
+  state.beforeMeta = state.afterMeta
+  state.afterMeta = tempMeta
 
-  const tempEdits = JSON.parse(JSON.stringify(state.edits.before))
-  state.edits.before = JSON.parse(JSON.stringify(state.edits.after))
+  // Edits travel with their image - that is what people expect from a swap.
+  const tempEdits = state.edits.before
+  state.edits.before = state.edits.after
   state.edits.after = tempEdits
 
-  // Apply
   elements.comparisonImageBefore.src = state.beforeImage
   elements.comparisonImageAfter.src = state.afterImage
   elements.beforePreview.src = state.beforeImage
   elements.afterPreview.src = state.afterImage
+
   state.interaction.selectedArrowIndex = -1
   applyCSSFilters()
-  redrawAll()
   updateDeleteBtn()
+  if (state.activeTool === "filter") updateFilterUI()
+
+  // The two images can have different aspect ratios, so the panes are re-laid
+  // out straight away and re-measured once the new pixels are on screen.
+  applyLayout()
+  await Promise.all([
+    waitForImageElement(elements.comparisonImageBefore),
+    waitForImageElement(elements.comparisonImageAfter)
+  ]).catch(() => {})
+  refreshCollageGeometry()
 }
 
 function resetApp() {
@@ -1348,176 +1597,233 @@ function resetApp() {
 }
 
 // Generate Blob Helper
+// ============================================
+// EXPORT
+// ============================================
+
+// Safari only gained ctx.filter in v18 - without this check the brightness /
+// contrast / saturation edits silently vanished from downloads on iPhones.
+const supportsCanvasFilter = (() => {
+  try {
+    const probe = document.createElement('canvas').getContext('2d')
+    if (!probe || !('filter' in probe)) return false
+    probe.filter = 'brightness(150%)'
+    return probe.filter !== 'none' && probe.filter !== ''
+  } catch {
+    return false
+  }
+})()
+
+function clamp(value, min, max) {
+  return value < min ? min : value > max ? max : value
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2)
+  ctx.beginPath()
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(x, y, w, h, radius)
+    return
+  }
+  // Fallback for Safari < 16.4, which throws on roundRect.
+  ctx.moveTo(x + radius, y)
+  ctx.arcTo(x + w, y, x + w, y + h, radius)
+  ctx.arcTo(x + w, y + h, x, y + h, radius)
+  ctx.arcTo(x, y + h, x, y, radius)
+  ctx.arcTo(x, y, x + w, y, radius)
+  ctx.closePath()
+}
+
+// Hand-rolled equivalent of `filter: brightness() contrast() saturate()`, run in
+// the same order the CSS pipeline uses.
+function applyPixelFilters(ctx, width, height, brightness, contrast, saturate) {
+  const image = ctx.getImageData(0, 0, width, height)
+  const px = image.data
+
+  for (let i = 0; i < px.length; i += 4) {
+    let r = px[i] * brightness
+    let g = px[i + 1] * brightness
+    let b = px[i + 2] * brightness
+
+    // CSS contrast() pivots around mid grey.
+    r = (r - 127.5) * contrast + 127.5
+    g = (g - 127.5) * contrast + 127.5
+    b = (b - 127.5) * contrast + 127.5
+
+    // CSS saturate() interpolates against Rec.709 luma.
+    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    px[i] = clamp(lum + (r - lum) * saturate, 0, 255)
+    px[i + 1] = clamp(lum + (g - lum) * saturate, 0, 255)
+    px[i + 2] = clamp(lum + (b - lum) * saturate, 0, 255)
+  }
+
+  ctx.putImageData(image, 0, 0)
+}
+
+function drawFilteredImage(ctx, img, side, x, y, w, h) {
+  const filter = filterStringFor(side)
+
+  if (filter === 'none') {
+    ctx.drawImage(img, x, y, w, h)
+    return
+  }
+
+  if (supportsCanvasFilter) {
+    ctx.save()
+    ctx.filter = filter
+    ctx.drawImage(img, x, y, w, h)
+    ctx.restore()
+    return
+  }
+
+  const f = state.edits[side].filters
+  const scratch = document.createElement('canvas')
+  scratch.width = Math.max(1, Math.round(w))
+  scratch.height = Math.max(1, Math.round(h))
+  const sctx = scratch.getContext('2d', { willReadFrequently: true })
+  sctx.drawImage(img, 0, 0, scratch.width, scratch.height)
+  applyPixelFilters(
+    sctx, scratch.width, scratch.height,
+    Number(f.brightness) / 100, Number(f.contrast) / 100, Number(f.saturate) / 100
+  )
+  ctx.drawImage(scratch, x, y, w, h)
+}
+
 async function generateComparisonBlob() {
   if (!state.beforeImage || !state.afterImage) {
     throw new Error('Upload both images before exporting.')
   }
 
-  const canvas = document.createElement('canvas')
-  const ctx = canvas.getContext('2d')
-  const [beforeImg, afterImg] = await Promise.all([loadImage(state.beforeImage), loadImage(state.afterImage)])
+  const [beforeImg, afterImg] = await Promise.all([
+    loadImage(state.beforeImage),
+    loadImage(state.afterImage)
+  ])
 
-  const isVertical = state.layoutMode === 'vertical'
-  const gap = 40
-  const border = 40
+  // Make sure Inter is available so the badges match the on-screen preview.
+  if (document.fonts && document.fonts.ready) await document.fonts.ready.catch(() => {})
 
-  let wB, hB, wA, hA, canvasW, canvasH, xB, yB, xA, yA
+  const a1 = beforeImg.naturalWidth / beforeImg.naturalHeight
+  const a2 = afterImg.naturalWidth / afterImg.naturalHeight
+  const mode = state.resolvedLayout
+  const geo = collageGeometry(mode, a1, a2)
 
-  if (isVertical) {
-    // Vertical: Align by Width
-    const w = Math.max(beforeImg.width, afterImg.width)
-    const scaleB = w / beforeImg.width
-    const scaleA = w / afterImg.width
-    wB = w
-    hB = beforeImg.height * scaleB
-    wA = w
-    hA = afterImg.height * scaleA
+  // One "base unit" in output pixels. Side by side that is the shared height,
+  // stacked it is the shared width - taking the larger of the two sources keeps
+  // full detail without ever upscaling past the original.
+  const basePx = mode === 'vertical'
+    ? Math.max(beforeImg.naturalWidth, afterImg.naturalWidth)
+    : Math.max(beforeImg.naturalHeight, afterImg.naturalHeight)
 
-    canvasW = w + border * 2
-    canvasH = hB + hA + gap + border * 2
-
-    xB = border
-    yB = border
-    xA = border
-    yA = border + hB + gap
-  } else {
-    // Horizontal: Align by Height
-    const h = Math.max(beforeImg.height, afterImg.height)
-    const scaleB = h / beforeImg.height
-    const scaleA = h / afterImg.height
-    wB = beforeImg.width * scaleB
-    hB = h
-    wA = afterImg.width * scaleA
-    hA = h
-
-    canvasW = wB + wA + gap + border * 2
-    canvasH = h + border * 2
-
-    xB = border
-    yB = border
-    xA = border + wB + gap
-    yA = border
-  }
+  const rawW = geo.totalW * basePx
+  const rawH = geo.totalH * basePx
 
   const exportScale = Math.min(
     1,
-    Math.sqrt(MAX_EXPORT_PIXELS / (canvasW * canvasH)),
-    MAX_EXPORT_SIDE / Math.max(canvasW, canvasH)
+    Math.sqrt(MAX_EXPORT_PIXELS / (rawW * rawH)),
+    MAX_EXPORT_SIDE / Math.max(rawW, rawH)
   )
 
-  if (exportScale < 1) {
-    wB *= exportScale; hB *= exportScale
-    wA *= exportScale; hA *= exportScale
-    xB *= exportScale; yB *= exportScale
-    xA *= exportScale; yA *= exportScale
-    canvasW *= exportScale; canvasH *= exportScale
-  }
+  const unit = basePx * exportScale
+  const frame = geo.frame * unit
+  const gap = geo.gap * unit
 
-  canvas.width = Math.round(canvasW)
-  canvas.height = Math.round(canvasH)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(rawW * exportScale)
+  canvas.height = Math.round(rawH * exportScale)
+  const ctx = canvas.getContext('2d')
 
-  ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-  // Draw Images
-  ctx.save()
-  ctx.filter = elements.comparisonImageBefore.style.filter
-  ctx.drawImage(beforeImg, xB, yB, wB, hB)
-  ctx.restore()
-
-  ctx.save()
-  ctx.filter = elements.comparisonImageAfter.style.filter
-  ctx.drawImage(afterImg, xA, yA, wA, hA)
-  ctx.restore()
-
-  // Draw Arrows
-  function renderArr(sideArgs, outputX, outputY, targetW, targetH) {
-    const arrowList = state.edits[sideArgs].arrows
-    if (!arrowList || arrowList.length === 0) return
-
-    const imgEl = sideArgs === 'before' ? elements.comparisonImageBefore : elements.comparisonImageAfter
-    const canvasEl = sideArgs === 'before' ? elements.canvasBefore : elements.canvasAfter
-
-    // Correct Aspect Ratio Mapping
-    const imgAspect = imgEl.naturalWidth / imgEl.naturalHeight
-    const canvasAspect = canvasEl.width / canvasEl.height
-
-    let renderW, renderH, offsetX, offsetY
-
-    if (canvasAspect > imgAspect) {
-      // Canvas is wider than image (Pillarbox)
-      renderH = canvasEl.height
-      renderW = renderH * imgAspect
-      offsetX = (canvasEl.width - renderW) / 2
-      offsetY = 0
-    } else {
-      // Canvas is taller than image (Letterbox)
-      renderW = canvasEl.width
-      renderH = renderW / imgAspect
-      offsetX = 0
-      offsetY = (canvasEl.height - renderH) / 2
+  // Pane rectangles, straight out of the same geometry the preview uses.
+  const isVertical = mode === 'vertical'
+  const panes = [
+    {
+      side: 'before',
+      img: beforeImg,
+      label: 'BEFORE',
+      color: '#dc2626',
+      x: frame,
+      y: frame,
+      w: geo.sizes[0].w * unit,
+      h: geo.sizes[0].h * unit
+    },
+    {
+      side: 'after',
+      img: afterImg,
+      label: 'AFTER',
+      color: '#16a34a',
+      x: isVertical ? frame : frame + geo.sizes[0].w * unit + gap,
+      y: isVertical ? frame + geo.sizes[0].h * unit + gap : frame,
+      w: geo.sizes[1].w * unit,
+      h: geo.sizes[1].h * unit
     }
+  ]
 
-    arrowList.forEach(arrow => {
-      // Logic is already normalized now! 
-      // Arrow contains 0-1 coords. 
-      // We just need to map them to the download output rect (outputX, outputY, targetW, targetH)
+  panes.forEach(pane => {
+    drawFilteredImage(ctx, pane.img, pane.side, pane.x, pane.y, pane.w, pane.h)
 
-      const p1 = {
-        x: outputX + arrow.start.x * targetW,
-        y: outputY + arrow.start.y * targetH
-      }
-      const p2 = {
-        x: outputX + arrow.end.x * targetW,
-        y: outputY + arrow.end.y * targetH
-      }
+    // Everything on top of the photo is clipped to its own pane, exactly like
+    // the `overflow: hidden` on each pane in the preview.
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(pane.x, pane.y, pane.w, pane.h)
+    ctx.clip()
 
-      // ACCURATE SCALING:
-      // We scale based on REFERENCE_BASE (1000) using min dimension
-      const REFERENCE_BASE = 1000
-      const scaleFactor = Math.min(targetW, targetH) / REFERENCE_BASE
-      const scaledSize = Math.max(2, arrow.size * scaleFactor)
+    drawPaneArrows(ctx, pane)
+    drawPaneBadge(ctx, pane)
 
-      const tempArrow = { start: p1, end: p2, color: arrow.color, size: scaledSize }
-      drawArrow(ctx, tempArrow, false) // False = no handles
-    })
-  }
+    ctx.restore()
+  })
 
-  renderArr('before', xB, yB, wB, hB)
-  renderArr('after', xA, yA, wA, hA)
-
-  // Badges
-  const fontSize = Math.min(canvasW, canvasH) * 0.04
-  ctx.font = `bold ${fontSize}px sans-serif`
-  ctx.textAlign = 'center'
-
-  function drawBadge(text, cx, cy, color) {
-    const tw = ctx.measureText(text).width + 40
-    const th = fontSize + 20
-    const radius = Math.max(4, fontSize * 0.15) // Sharp but polished (approx 4px-8px visuals)
-    ctx.fillStyle = color
-    ctx.beginPath(); ctx.roundRect(cx - tw / 2, cy - th / 2, tw, th, radius); ctx.fill()
-    ctx.fillStyle = 'white'
-    ctx.fillText(text, cx, cy + fontSize * 0.3)
-  }
-
-  // Draw Before Badge
-  const badgePosB = state.edits.before.badge
-  const bX = xB + badgePosB.x * wB
-  const bY = yB + badgePosB.y * hB
-
-  drawBadge('BEFORE', bX, bY, '#dc2626')
-
-  // Draw After Badge
-  const badgePosA = state.edits.after.badge
-  const aX = xA + badgePosA.x * wA
-  const aY = yA + badgePosA.y * hA
-  drawBadge('AFTER', aX, aY, '#16a34a')
-
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     canvas.toBlob(blob => {
-      resolve(blob)
+      if (blob) resolve(blob)
+      else reject(new Error('Could not create the image file.'))
     }, 'image/jpeg', 0.95)
   })
+}
+
+function drawPaneArrows(ctx, pane) {
+  const arrows = state.edits[pane.side].arrows
+  if (!arrows || arrows.length === 0) return
+
+  // Same reference base as the live canvas, so an arrow keeps its proportions.
+  const scaleFactor = Math.min(pane.w, pane.h) / ARROW_REFERENCE_BASE
+
+  arrows.forEach(arrow => {
+    drawArrow(ctx, {
+      start: { x: pane.x + arrow.start.x * pane.w, y: pane.y + arrow.start.y * pane.h },
+      end: { x: pane.x + arrow.end.x * pane.w, y: pane.y + arrow.end.y * pane.h },
+      color: arrow.color,
+      size: Math.max(2, arrow.size * scaleFactor)
+    }, false)
+  })
+}
+
+function drawPaneBadge(ctx, pane) {
+  const pos = state.edits[pane.side].badge
+  const fontSize = Math.min(pane.w, pane.h) * BADGE_RATIO
+
+  ctx.font = `700 ${fontSize}px Inter, system-ui, -apple-system, sans-serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+
+  const padX = fontSize * 0.75
+  const padY = fontSize * 0.42
+  const boxW = ctx.measureText(pane.label).width + padX * 2
+  const boxH = fontSize + padY * 2
+
+  // Keep the pill fully inside its pane even when dragged right to the edge.
+  const x = clamp(pane.x + pos.x * pane.w - boxW / 2, pane.x, pane.x + pane.w - boxW)
+  const y = clamp(pane.y + pos.y * pane.h - boxH / 2, pane.y, pane.y + pane.h - boxH)
+
+  ctx.fillStyle = pane.color
+  roundRectPath(ctx, x, y, boxW, boxH, fontSize * 0.25)
+  ctx.fill()
+
+  ctx.fillStyle = '#ffffff'
+  ctx.fillText(pane.label, x + boxW / 2, y + boxH / 2)
 }
 
 // Download Handler
