@@ -74,48 +74,9 @@ const state = {
 // ============================================
 // DOM ELEMENTS
 // ============================================
+// Populated by cacheElements() once renderHTML() has run.
 const elements = {
-  app: document.querySelector('#app'),
-  installBtn: null,
-  beforeInput: null,
-  afterInput: null,
-  beforePreview: null,
-  afterPreview: null,
-  beforeUploadArea: null,
-  afterUploadArea: null,
-  comparisonSection: null,
-  comparisonImageBefore: null,
-  comparisonImageAfter: null,
-  swapBtn: null,
-  resetBtn: null,
-  shareBtn: null,
-  downloadBtn: null,
-
-  // Tools
-  toolArrow: null,
-  toolFilter: null,
-  arrowOptions: null,
-  btnAddArrow: null,
-  btnDeleteArrow: null,
-  arrowSize: null,
-  colorBtns: null,
-
-  filterControls: null,
-  sideBefore: null,
-  sideAfter: null,
-  canvasBefore: null,
-  canvasAfter: null,
-
-  brightnessSlider: null,
-  contrastSlider: null,
-  saturateSlider: null,
-  brightnessVal: null,
-  contrastVal: null,
-  saturateVal: null,
-
-  // Badges
-  badgeBefore: null,
-  badgeAfter: null
+  app: document.querySelector("#app")
 }
 
 // ============================================
@@ -126,6 +87,7 @@ function initApp() {
   cacheElements()
   attachEventListeners()
   applyLayout()
+  updateActionAvailability()
   setupPWA()
   setupConnectionStatus()
 }
@@ -139,7 +101,7 @@ function setupPWA() {
   if (elements.installBtn) {
     elements.installBtn.addEventListener('click', async () => {
       if (!deferredPrompt) return;
-      elements.installBtn.style.display = 'none';
+      elements.installBtn.hidden = true;
       deferredPrompt.prompt();
       await deferredPrompt.userChoice;
       deferredPrompt = null;
@@ -153,7 +115,7 @@ function setupPWA() {
     deferredPrompt = e;
     // Update UI to notify the user they can add to home screen
     if (elements.installBtn) {
-      elements.installBtn.style.display = 'block';
+      elements.installBtn.hidden = false;
     }
   });
 }
@@ -240,155 +202,223 @@ function setupConnectionStatus() {
 }
 
 // ============================================
+// ICONS
+// ============================================
+const svg = (paths, size = 18) =>
+  `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`
+
+const ICON = {
+  photo: svg('<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>'),
+  sparkles: svg('<path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/><circle cx="12" cy="12" r="3"/>'),
+  arrow: svg('<path d="M7 17 17 7"/><path d="M9 7h8v8"/>'),
+  sliders: svg('<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h10M18 18h2"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="16" cy="18" r="2"/>'),
+  swap: svg('<path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>'),
+  reset: svg('<path d="M3 2v6h6"/><path d="M3.5 12a8.5 8.5 0 1 1 2.5 6"/>'),
+  share: svg('<path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="m16 6-4-4-4 4"/><path d="M12 2v14"/>'),
+  download: svg('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>'),
+  plus: svg('<path d="M12 5v14M5 12h14"/>', 16),
+  minus: svg('<path d="M5 12h14"/>', 16),
+  trash: svg('<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>', 16),
+  install: svg('<path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M4 19h16"/>', 16),
+  wand: svg('<path d="m4 20 9-9"/><path d="M15 5.5 18.5 9"/><path d="M17 3v4M19 5h-4"/><path d="M6 14v3M7.5 15.5h-3"/>', 16)
+}
+
+// ============================================
 // RENDER HTML STRUCTURE
 // ============================================
+function uploadSlot(side, label) {
+  return `
+    <div class="slot slot--${side}" id="${side}-upload-area" role="button" tabindex="0"
+         aria-label="Choose the ${label.toLowerCase()} photo">
+      <span class="slot__tag">${label}</span>
+      <span class="slot__thumb">
+        ${ICON.photo}
+        <img id="${side}-preview" alt="" />
+      </span>
+      <span class="slot__action"></span>
+      <input type="file" id="${side}-input" class="upload-input" accept="image/*" />
+    </div>`
+}
+
+function collagePane(side, label) {
+  return `
+    <div class="collage-side" id="side-${side}" data-side="${side}">
+      <img id="comparison-${side}" class="collage-image" alt="${label} photo" />
+      <canvas id="canvas-${side}" class="drawing-canvas" aria-label="${label} photo annotations"></canvas>
+      <span class="collage-badge${side === 'after' ? ' collage-badge--after' : ''}">${side}</span>
+    </div>`
+}
+
 function renderHTML() {
   elements.app.innerHTML = `
-    <!-- Header -->
-    <header class="header">
-      <div class="header__brand">
-        <img class="header__logo" src="${import.meta.env.BASE_URL}logo.png" alt="" width="44" height="44" />
-        <div class="header__text">
-          <h1 class="header__title">Before &amp; After</h1>
-          <p class="header__subtitle">Professional image comparison</p>
+    <div class="app-shell">
+      <header class="appbar">
+        <div class="appbar__brand">
+          <img class="appbar__logo" src="${import.meta.env.BASE_URL}logo.png" alt="" width="32" height="32" />
+          <span class="appbar__name">Before &amp; After</span>
+          <span class="appbar__tag">Comparison studio</span>
         </div>
-      </div>
-      <button id="install-btn" class="btn btn--sm btn--primary" style="display: none;">⬇️ Install App</button>
-    </header>
-
-    <!-- Upload Section -->
-    <section class="upload-section" id="upload-section">
-      <!-- Before Upload -->
-      <div class="card upload-card">
-        <label class="upload-label"><span class="badge badge--before">Before</span></label>
-        <div class="upload-area" id="before-upload-area" role="button" tabindex="0" aria-label="Upload before image">
-          <svg class="upload-icon" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-          <p class="upload-text">Upload Before</p>
-          <p class="upload-hint">Click or drag image</p>
-          <input type="file" id="before-input" class="upload-input" accept="image/*" />
-          <img id="before-preview" class="upload-preview" />
-          <span class="upload-change-overlay"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>Change photo</span>
-        </div>
-      </div>
-
-      <!-- After Upload -->
-      <div class="card upload-card">
-        <label class="upload-label"><span class="badge badge--after">After</span></label>
-        <div class="upload-area" id="after-upload-area" role="button" tabindex="0" aria-label="Upload after image">
-          <svg class="upload-icon" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-          <p class="upload-text">Upload After</p>
-          <p class="upload-hint">Click or drag image</p>
-          <input type="file" id="after-input" class="upload-input" accept="image/*" />
-          <img id="after-preview" class="upload-preview" />
-          <span class="upload-change-overlay"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>Change photo</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- Comparison Viewer -->
-    <section class="comparison-section" id="comparison-section">
-      
-      <!-- Toolbar -->
-      <div class="editing-toolbar">
-        <button type="button" class="tool-btn" id="tool-arrow" aria-pressed="false">
-          <svg class="tool-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline></svg>
-          <span class="tool-label">Arrows</span>
+        <button type="button" class="btn btn--ghost btn--sm" id="install-btn" hidden>
+          ${ICON.install}<span>Install</span>
         </button>
-        <button type="button" class="tool-btn" id="tool-filter" aria-pressed="false">
-          <svg class="tool-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6m5.2-13.2l-4.2 4.2m0 6l4.2 4.2M23 12h-6m-6 0H1m18.2-5.2l-4.2 4.2m0 6l4.2 4.2"></path></svg>
-          <span class="tool-label">Filters</span>
-        </button>
-      </div>
+      </header>
 
-      <!-- Arrow Options Panel -->
-      <div class="tool-options" id="arrow-options">
-         <div class="options-row">
-            <button type="button" class="btn btn--sm btn--primary" id="btn-add-arrow">➕ Add Arrow</button>
-            <button type="button" class="btn btn--sm btn--danger" id="btn-delete-arrow" disabled>🗑️ Delete</button>
-         </div>
-         <div class="options-row">
-            <div class="color-picker" id="color-picker">
-              <button type="button" class="color-btn active" style="background: #dc2626" data-color="#dc2626" aria-label="Red arrow" aria-pressed="true"></button>
-              <button type="button" class="color-btn" style="background: #2563eb" data-color="#2563eb" aria-label="Blue arrow" aria-pressed="false"></button>
-              <button type="button" class="color-btn" style="background: #16a34a" data-color="#16a34a" aria-label="Green arrow" aria-pressed="false"></button>
-              <button type="button" class="color-btn" style="background: #eab308" data-color="#eab308" aria-label="Yellow arrow" aria-pressed="false"></button>
-              <button type="button" class="color-btn" style="background: #ffffff" data-color="#ffffff" aria-label="White arrow" aria-pressed="false"></button>
-              <button type="button" class="color-btn" style="background: #000000" data-color="#000000" aria-label="Black arrow" aria-pressed="false"></button>
-           </div>
-           <div class="size-control">
-              <span class="size-label">Size</span>
-              <button type="button" class="btn-size" id="btn-size-minus" aria-label="Decrease arrow size">-</button>
-              <input type="range" id="arrow-size" min="5" max="35" value="20" aria-label="Arrow size">
-              <button type="button" class="btn-size" id="btn-size-plus" aria-label="Increase arrow size">+</button>
-           </div>
-         </div>
-         <div class="tool-hint">Select a side (Before/After) then click Add Arrow. Drag blue handles to adjust.</div>
-      </div>
+      <main class="workspace">
+        <!-- ---------------------------------------------------------- stage -->
+        <section class="stage">
+          <div class="stage__surface">
+            <div class="placeholder" id="placeholder">
+              <div class="placeholder__frames">
+                <button type="button" class="placeholder__frame" data-pick="before">
+                  <img id="placeholder-before" alt="" />
+                  ${ICON.photo}<span>Before</span>
+                </button>
+                <button type="button" class="placeholder__frame" data-pick="after">
+                  <img id="placeholder-after" alt="" />
+                  ${ICON.photo}<span>After</span>
+                </button>
+              </div>
+              <p class="placeholder__title" id="placeholder-title">Add two photos to begin</p>
+              <p class="placeholder__text" id="placeholder-text">
+                Pick a before and an after shot. The best layout gets chosen for you,
+                and what you see here is exactly what downloads.
+              </p>
+            </div>
 
-      <!-- Filter Controls -->
-      <div class="filter-controls" id="filter-controls">
-        <div class="tool-hint">Adjust filters for selected image</div>
-        <div class="filter-group">
-          <label>Brightness <span id="brightness-val">100%</span></label>
-          <input type="range" class="filter-slider" id="brightness-slider" min="50" max="150" value="100">
-        </div>
-        <div class="filter-group">
-          <label>Contrast <span id="contrast-val">100%</span></label>
-          <input type="range" class="filter-slider" id="contrast-slider" min="50" max="150" value="100">
-        </div>
-        <div class="filter-group">
-          <label>Saturation <span id="saturate-val">100%</span></label>
-          <input type="range" class="filter-slider" id="saturate-slider" min="0" max="200" value="100">
-        </div>
-        <button type="button" class="btn btn--sm btn--secondary reset-filter-btn" id="btn-reset-filters">↺ Reset Filters</button>
-      </div>
-
-      <!-- Main Canvas Area -->
-      <div class="card">
-        <div class="collage-container layout-horizontal" id="collage-container">
-          <!-- Before Side -->
-          <div class="collage-side" id="side-before" data-side="before">
-            <img id="comparison-before" class="collage-image" />
-            <canvas id="canvas-before" class="drawing-canvas" aria-label="Before image arrow editor"></canvas>
-            <span class="collage-badge collage-badge--before">before</span>
+            <div class="collage-container layout-horizontal" id="collage-container">
+              ${collagePane('before', 'Before')}
+              ${collagePane('after', 'After')}
+            </div>
           </div>
-          
-          <!-- After Side -->
-          <div class="collage-side" id="side-after" data-side="after">
-            <img id="comparison-after" class="collage-image" />
-            <canvas id="canvas-after" class="drawing-canvas" aria-label="After image arrow editor"></canvas>
-            <span class="collage-badge collage-badge--after">after</span>
-          </div>
-        </div>
+          <p class="stage__caption" id="layout-status" aria-live="polite"></p>
+        </section>
 
-        <!-- Layout status: always says which layout is live and why -->
-        <p class="layout-status" id="layout-status" aria-live="polite"></p>
+        <!-- ------------------------------------------------------ inspector -->
+        <aside class="inspector">
+          <section class="panel" data-requires-images hidden>
+            <div class="panel__head"><h2 class="panel__title">Photos</h2></div>
+            <div class="panel__body">
+              <div class="slots">
+                ${uploadSlot('before', 'Before')}
+                ${uploadSlot('after', 'After')}
+              </div>
+            </div>
+          </section>
 
-        <!-- Action Buttons -->
-        <div class="controls">
-          <button class="btn btn--secondary" id="swap-btn" title="Swap before and after" aria-label="Swap before and after">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
-            <span class="btn__label">Swap</span>
+          <section class="panel" data-requires-images hidden>
+            <div class="panel__head"><h2 class="panel__title">Layout</h2></div>
+            <div class="panel__body">
+              <div class="segmented" id="layout-switch" role="group" aria-label="Collage layout">
+                <button type="button" class="segmented__item" data-mode="auto" aria-pressed="true">
+                  ${ICON.wand}<span>Auto</span>
+                </button>
+                <button type="button" class="segmented__item" data-mode="horizontal" aria-pressed="false">
+                  ${LAYOUT_ICONS.horizontal}<span>Side</span>
+                </button>
+                <button type="button" class="segmented__item" data-mode="vertical" aria-pressed="false">
+                  ${LAYOUT_ICONS.vertical}<span>Stack</span>
+                </button>
+              </div>
+              <p class="panel__hint" id="layout-hint"></p>
+            </div>
+          </section>
+
+          <section class="panel" data-requires-images hidden>
+            <div class="panel__head"><h2 class="panel__title">Edit</h2></div>
+            <div class="panel__body">
+              <div class="segmented" id="side-switch" role="group" aria-label="Photo to edit">
+                <button type="button" class="segmented__item" data-side="before" aria-pressed="false">Before</button>
+                <button type="button" class="segmented__item" data-side="after" aria-pressed="true">After</button>
+              </div>
+
+              <div class="segmented" role="group" aria-label="Tool">
+                <button type="button" class="segmented__item" id="tool-arrow" aria-pressed="false">
+                  ${ICON.arrow}<span>Arrows</span>
+                </button>
+                <button type="button" class="segmented__item" id="tool-filter" aria-pressed="false">
+                  ${ICON.sliders}<span>Adjust</span>
+                </button>
+              </div>
+
+              <!-- Arrows -->
+              <div class="tool-options" id="arrow-options">
+                <div class="row row--split">
+                  <button type="button" class="btn btn--secondary btn--sm" id="btn-add-arrow">
+                    ${ICON.plus}Add arrow
+                  </button>
+                  <button type="button" class="btn btn--quiet-danger btn--sm" id="btn-delete-arrow" disabled>
+                    ${ICON.trash}Delete
+                  </button>
+                </div>
+
+                <div class="field">
+                  <span class="field__label">Colour</span>
+                  <div class="color-picker" id="color-picker">
+                    <button type="button" class="color-btn active" style="background:#dc2626" data-color="#dc2626" aria-label="Red" aria-pressed="true"></button>
+                    <button type="button" class="color-btn" style="background:#2563eb" data-color="#2563eb" aria-label="Blue" aria-pressed="false"></button>
+                    <button type="button" class="color-btn" style="background:#16a34a" data-color="#16a34a" aria-label="Green" aria-pressed="false"></button>
+                    <button type="button" class="color-btn" style="background:#eab308" data-color="#eab308" aria-label="Yellow" aria-pressed="false"></button>
+                    <button type="button" class="color-btn" style="background:#ffffff" data-color="#ffffff" aria-label="White" aria-pressed="false"></button>
+                    <button type="button" class="color-btn" style="background:#0f172a" data-color="#0f172a" aria-label="Black" aria-pressed="false"></button>
+                  </div>
+                </div>
+
+                <div class="field">
+                  <span class="field__label">Thickness <span class="field__value" id="arrow-size-val">20</span></span>
+                  <div class="row">
+                    <button type="button" class="stepper" id="btn-size-minus" aria-label="Thinner">${ICON.minus}</button>
+                    <input type="range" class="slider" id="arrow-size" min="5" max="35" value="20" aria-label="Arrow thickness" />
+                    <button type="button" class="stepper" id="btn-size-plus" aria-label="Thicker">${ICON.plus}</button>
+                  </div>
+                </div>
+
+                <p class="panel__hint">Drag the arrow body to move it, or the round handles to re-aim. Pinch to resize on touch.</p>
+              </div>
+
+              <!-- Adjust -->
+              <div class="filter-controls" id="filter-controls">
+                <div class="field">
+                  <span class="field__label">Brightness <span class="field__value" id="brightness-val">100%</span></span>
+                  <input type="range" class="slider" id="brightness-slider" min="50" max="150" value="100" />
+                </div>
+                <div class="field">
+                  <span class="field__label">Contrast <span class="field__value" id="contrast-val">100%</span></span>
+                  <input type="range" class="slider" id="contrast-slider" min="50" max="150" value="100" />
+                </div>
+                <div class="field">
+                  <span class="field__label">Saturation <span class="field__value" id="saturate-val">100%</span></span>
+                  <input type="range" class="slider" id="saturate-slider" min="0" max="200" value="100" />
+                </div>
+                <button type="button" class="btn btn--ghost btn--sm btn--block" id="btn-reset-filters">
+                  ${ICON.reset}Reset adjustments
+                </button>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </main>
+
+      <!-- ------------------------------------------------------- actionbar -->
+      <div class="actionbar">
+        <div class="actionbar__inner">
+          <button type="button" class="btn btn--secondary btn--utility" id="swap-btn"
+                  title="Swap before and after" aria-label="Swap before and after">
+            ${ICON.swap}<span class="btn__label">Swap</span>
           </button>
-          <button class="btn btn--secondary" id="layout-btn">
-            <span class="layout-btn__icon" id="layout-btn-icon"></span>
-            <span class="btn__label" id="layout-btn-label">Layout</span>
+          <button type="button" class="btn btn--quiet-danger btn--utility" id="reset-btn"
+                  title="Start over" aria-label="Start over">
+            ${ICON.reset}<span class="btn__label">Reset</span>
           </button>
-          <button class="btn btn--primary" id="share-btn" title="Share the comparison" aria-label="Share the comparison">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
-            <span class="btn__label">Share</span>
+          <span class="actionbar__spacer"></span>
+          <button type="button" class="btn btn--secondary btn--export" id="share-btn">
+            ${ICON.share}<span class="btn__label">Share</span>
           </button>
-          <button class="btn btn--primary" id="download-btn" title="Download the comparison" aria-label="Download the comparison">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-            <span class="btn__label">Download</span>
-          </button>
-          <button class="btn btn--accent" id="reset-btn" title="Start over" aria-label="Start over">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><polyline points="23 20 23 14 17 14"></polyline><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path></svg>
-            <span class="btn__label">Reset</span>
+          <button type="button" class="btn btn--primary btn--export" id="download-btn">
+            ${ICON.download}<span class="btn__label">Download</span>
           </button>
         </div>
       </div>
-    </section>
+    </div>
   `
 }
 
@@ -396,56 +426,70 @@ function renderHTML() {
 // CACHE ELEMENTS
 // ============================================
 function cacheElements() {
+  const byId = (id) => document.getElementById(id)
+
   elements.app = document.querySelector('#app')
-  elements.installBtn = document.querySelector('#install-btn')
-  elements.beforeInput = document.getElementById('before-input')
-  elements.afterInput = document.getElementById('after-input')
-  elements.beforePreview = document.getElementById('before-preview')
-  elements.afterPreview = document.getElementById('after-preview')
-  elements.beforeUploadArea = document.getElementById('before-upload-area')
-  elements.afterUploadArea = document.getElementById('after-upload-area')
-  elements.comparisonSection = document.getElementById('comparison-section')
-  elements.comparisonImageBefore = document.getElementById('comparison-before')
-  elements.comparisonImageAfter = document.getElementById('comparison-after')
-  elements.swapBtn = document.getElementById('swap-btn')
-  elements.layoutBtn = document.getElementById('layout-btn')
-  elements.layoutBtnIcon = document.getElementById('layout-btn-icon')
-  elements.layoutBtnLabel = document.getElementById('layout-btn-label')
-  elements.layoutStatus = document.getElementById('layout-status')
-  elements.collageContainer = document.getElementById('collage-container')
-  elements.resetBtn = document.getElementById('reset-btn')
-  elements.shareBtn = document.getElementById('share-btn')
-  elements.downloadBtn = document.getElementById('download-btn')
-  elements.editingToolbar = document.querySelector('.editing-toolbar')
-  elements.controls = document.querySelector('.controls')
+  elements.installBtn = byId('install-btn')
 
-  // Tools
-  elements.toolArrow = document.getElementById('tool-arrow')
-  elements.toolFilter = document.getElementById('tool-filter')
-  elements.arrowOptions = document.getElementById('arrow-options')
-  elements.btnAddArrow = document.getElementById('btn-add-arrow')
-  elements.btnDeleteArrow = document.getElementById('btn-delete-arrow')
-  elements.arrowSize = document.getElementById('arrow-size')
-  elements.btnSizeMinus = document.getElementById('btn-size-minus')
-  elements.btnSizePlus = document.getElementById('btn-size-plus')
-  elements.colorBtns = document.querySelectorAll('.color-btn')
+  elements.beforeInput = byId('before-input')
+  elements.afterInput = byId('after-input')
+  elements.beforePreview = byId('before-preview')
+  elements.afterPreview = byId('after-preview')
+  elements.beforeUploadArea = byId('before-upload-area')
+  elements.afterUploadArea = byId('after-upload-area')
 
-  elements.filterControls = document.getElementById('filter-controls')
-  elements.sideBefore = document.getElementById('side-before')
-  elements.sideAfter = document.getElementById('side-after')
-  elements.canvasBefore = document.getElementById('canvas-before')
-  elements.canvasAfter = document.getElementById('canvas-after')
-
-  elements.brightnessSlider = document.getElementById('brightness-slider')
-  elements.contrastSlider = document.getElementById('contrast-slider')
-  elements.saturateSlider = document.getElementById('saturate-slider')
-  elements.brightnessVal = document.getElementById('brightness-val')
-  elements.contrastVal = document.getElementById('contrast-val')
-  elements.saturateVal = document.getElementById('saturate-val')
-  elements.btnResetFilters = document.getElementById('btn-reset-filters')
-
+  elements.collageContainer = byId('collage-container')
+  elements.comparisonImageBefore = byId('comparison-before')
+  elements.comparisonImageAfter = byId('comparison-after')
+  elements.sideBefore = byId('side-before')
+  elements.sideAfter = byId('side-after')
+  elements.canvasBefore = byId('canvas-before')
+  elements.canvasAfter = byId('canvas-after')
   elements.badgeBefore = elements.sideBefore.querySelector('.collage-badge')
   elements.badgeAfter = elements.sideAfter.querySelector('.collage-badge')
+
+  elements.layoutSwitch = byId('layout-switch')
+  elements.layoutButtons = elements.layoutSwitch.querySelectorAll('[data-mode]')
+  elements.layoutStatus = byId('layout-status')
+  elements.layoutHint = byId('layout-hint')
+
+  elements.sideSwitch = byId('side-switch')
+  elements.sideButtons = elements.sideSwitch.querySelectorAll('[data-side]')
+
+  elements.toolArrow = byId('tool-arrow')
+  elements.toolFilter = byId('tool-filter')
+  elements.arrowOptions = byId('arrow-options')
+  elements.btnAddArrow = byId('btn-add-arrow')
+  elements.btnDeleteArrow = byId('btn-delete-arrow')
+  elements.arrowSize = byId('arrow-size')
+  elements.arrowSizeVal = byId('arrow-size-val')
+  elements.btnSizeMinus = byId('btn-size-minus')
+  elements.btnSizePlus = byId('btn-size-plus')
+  elements.colorBtns = document.querySelectorAll('.color-btn')
+
+  elements.filterControls = byId('filter-controls')
+  elements.brightnessSlider = byId('brightness-slider')
+  elements.contrastSlider = byId('contrast-slider')
+  elements.saturateSlider = byId('saturate-slider')
+  elements.brightnessVal = byId('brightness-val')
+  elements.contrastVal = byId('contrast-val')
+  elements.saturateVal = byId('saturate-val')
+  elements.btnResetFilters = byId('btn-reset-filters')
+
+  elements.swapBtn = byId('swap-btn')
+  elements.resetBtn = byId('reset-btn')
+  elements.shareBtn = byId('share-btn')
+  elements.downloadBtn = byId('download-btn')
+
+  elements.imageOnlyPanels = document.querySelectorAll('[data-requires-images]')
+  elements.placeholderPicks = document.querySelectorAll('[data-pick]')
+  elements.placeholderThumbs = {
+    before: byId('placeholder-before'),
+    after: byId('placeholder-after')
+  }
+  elements.placeholderTitle = byId('placeholder-title')
+  elements.placeholderText = byId('placeholder-text')
+  elements.actionButtons = [elements.swapBtn, elements.shareBtn, elements.downloadBtn]
 }
 
 // ============================================
@@ -453,16 +497,29 @@ function cacheElements() {
 // ============================================
 function attachEventListeners() {
   // Uploads
-  elements.beforeUploadArea.addEventListener('click', () => elements.beforeInput.click())
-  elements.afterUploadArea.addEventListener('click', () => elements.afterInput.click())
   elements.beforeInput.addEventListener('change', (e) => handleImageUpload(e, 'before'))
   elements.afterInput.addEventListener('change', (e) => handleImageUpload(e, 'after'))
   setupUploadArea(elements.beforeUploadArea, 'before')
   setupUploadArea(elements.afterUploadArea, 'after')
 
+  elements.placeholderPicks.forEach(btn => {
+    btn.addEventListener('click', () => {
+      (btn.dataset.pick === 'before' ? elements.beforeInput : elements.afterInput).click()
+    })
+  })
+
+  // Layout: a direct three-way choice, so no state is ever a guess.
+  elements.layoutButtons.forEach(btn => {
+    btn.addEventListener('click', () => setLayoutMode(btn.dataset.mode))
+  })
+
+  // Which photo the tools apply to
+  elements.sideButtons.forEach(btn => {
+    btn.addEventListener('click', () => selectSide(btn.dataset.side))
+  })
+
   // Controls
   elements.swapBtn.addEventListener('click', swapImages)
-  elements.layoutBtn.addEventListener('click', toggleLayout)
   elements.resetBtn.addEventListener('click', resetApp)
   if (elements.shareBtn) elements.shareBtn.addEventListener('click', shareComparison)
   elements.downloadBtn.addEventListener('click', downloadComparison)
@@ -493,23 +550,15 @@ function attachEventListeners() {
   elements.btnDeleteArrow.addEventListener('click', deleteArrow)
 
   elements.arrowSize.addEventListener('input', (e) => {
-    state.arrowSettings.size = parseInt(e.target.value)
-    updateSelectedArrow()
+    setArrowSize(parseInt(e.target.value, 10))
   })
 
   elements.btnSizeMinus.addEventListener('click', () => {
-    let val = parseInt(elements.arrowSize.value)
-    val = Math.max(5, val - 1)
-    elements.arrowSize.value = val
-    state.arrowSettings.size = val
-    updateSelectedArrow()
+    setArrowSize(parseInt(elements.arrowSize.value, 10) - 1)
   })
 
   elements.btnSizePlus.addEventListener('click', () => {
-    const val = Math.min(35, parseInt(elements.arrowSize.value) + 1)
-    elements.arrowSize.value = val
-    state.arrowSettings.size = val
-    updateSelectedArrow()
+    setArrowSize(parseInt(elements.arrowSize.value, 10) + 1)
   })
 
   elements.colorBtns.forEach(btn => {
@@ -549,10 +598,18 @@ function attachEventListeners() {
 }
 
 function setupUploadArea(area, side) {
+  const input = side === 'before' ? elements.beforeInput : elements.afterInput
+
+  area.addEventListener('click', (event) => {
+    // input.click() re-dispatches a bubbling click; without this it recurses.
+    if (event.target === input) return
+    input.click()
+  })
+
   area.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
-      ;(side === 'before' ? elements.beforeInput : elements.afterInput).click()
+      input.click()
     }
   })
 
@@ -695,15 +752,20 @@ function handleSideClick(e, side) {
 function selectSide(side) {
   const previousSide = state.activeSide
   state.activeSide = side
+
   elements.sideBefore.classList.toggle('is-selected', side === 'before')
   elements.sideAfter.classList.toggle('is-selected', side === 'after')
+  elements.sideButtons.forEach(btn => {
+    btn.setAttribute('aria-pressed', String(btn.dataset.side === side))
+  })
 
-  // Update UI for filters
   if (state.activeTool === 'filter') updateFilterUI()
 
-  // Only reset arrow selection if we actually CHANGED sides
+  // Only drop the arrow selection when the target image actually changed.
   if (previousSide !== side) {
     state.interaction.selectedArrowIndex = -1
+    updateDeleteBtn()
+    redrawAll()
   }
 }
 
@@ -711,7 +773,7 @@ function selectSide(side) {
 // ARROW LOGIC (OBJECT BASED)
 // ============================================
 function addArrow() {
-  if (!elements.comparisonSection.classList.contains('active')) return
+  if (!state.beforeImage || !state.afterImage) return
 
   // Default positions (approx 30% to 70%)
   const arrow = {
@@ -739,6 +801,16 @@ function deleteArrow() {
   }
 }
 
+// Single entry point for the thickness slider, the steppers and pinch, so the
+// slider, the readout and the selected arrow never disagree.
+function setArrowSize(value, { syncSlider = true } = {}) {
+  const size = Math.max(5, Math.min(35, Math.round(value)))
+  state.arrowSettings.size = size
+  if (syncSlider) elements.arrowSize.value = String(size)
+  elements.arrowSizeVal.textContent = String(size)
+  updateSelectedArrow()
+}
+
 function updateSelectedArrow() {
   const side = state.activeSide
   const idx = state.interaction.selectedArrowIndex
@@ -747,6 +819,38 @@ function updateSelectedArrow() {
     state.edits[side].arrows[idx].size = state.arrowSettings.size
     redrawAll()
   }
+}
+
+// The stage placeholder is the whole onboarding flow: it shows which photo is
+// still missing and fills in as they arrive.
+function updatePlaceholder() {
+  const have = [state.beforeImage, state.afterImage].filter(Boolean).length
+
+  elements.placeholderPicks.forEach(btn => {
+    const url = btn.dataset.pick === 'before' ? state.beforeImage : state.afterImage
+    const thumb = elements.placeholderThumbs[btn.dataset.pick]
+    btn.classList.toggle('has-image', Boolean(url))
+    if (url && thumb.src !== url) thumb.src = url
+  })
+
+  if (have === 0) {
+    elements.placeholderTitle.textContent = 'Add two photos to begin'
+    elements.placeholderText.textContent =
+      'Pick a before and an after shot. The best layout gets chosen for you, and what you see here is exactly what downloads.'
+  } else if (have === 1) {
+    const missing = state.beforeImage ? 'after' : 'before'
+    elements.placeholderTitle.textContent = 'One more to go'
+    elements.placeholderText.textContent = `Add the ${missing} photo to build the comparison.`
+  }
+}
+
+// Swap / Share / Download only mean something once both photos are in.
+function updateActionAvailability() {
+  const ready = Boolean(state.beforeImage && state.afterImage)
+  elements.actionButtons.forEach(btn => {
+    if (btn) btn.disabled = !ready
+  })
+  if (elements.resetBtn) elements.resetBtn.disabled = !(state.beforeImage || state.afterImage)
 }
 
 function updateDeleteBtn() {
@@ -876,6 +980,7 @@ function setupCanvasInteraction(canvas, side) {
         state.edits[side].arrows[state.interaction.selectedArrowIndex].size = newSize
         state.arrowSettings.size = newSize
         elements.arrowSize.value = String(Math.round(newSize))
+        elements.arrowSizeVal.textContent = String(Math.round(newSize))
         redrawAll()
       }
       return
@@ -1260,16 +1365,16 @@ async function processImageFile(file, type) {
     state.beforeImage = imageUrl
     state.beforeMeta = meta
     elements.beforePreview.src = imageUrl
-    elements.beforePreview.style.display = 'block'
     elements.beforeUploadArea.classList.add('has-image')
   } else {
     state.afterImage = imageUrl
     state.afterMeta = meta
     elements.afterPreview.src = imageUrl
-    elements.afterPreview.style.display = 'block'
     elements.afterUploadArea.classList.add('has-image')
   }
 
+  updateActionAvailability()
+  updatePlaceholder()
   await checkAndShowComparison()
   releaseObjectURL(previousUrl)
 }
@@ -1301,15 +1406,14 @@ async function waitForImageElement(image) {
 async function checkAndShowComparison() {
   if (!state.beforeImage || !state.afterImage) return
 
-  const firstReveal = !elements.comparisonSection.classList.contains('active')
+  const firstReveal = !elements.app.classList.contains('images-ready')
 
   elements.comparisonImageBefore.src = state.beforeImage
   elements.comparisonImageAfter.src = state.afterImage
-  elements.comparisonSection.classList.add('active')
 
-  // Reveal all UI, collapse the upload zones into a compact re-select bar
-  elements.app.classList.add("reveal-ui")
-  elements.app.classList.add("images-ready")
+  elements.app.classList.add('images-ready')
+  elements.imageOnlyPanels.forEach(panel => { panel.hidden = false })
+  updateActionAvailability()
 
   // Lay out before the first paint. The engine only needs the natural sizes,
   // which are already known, so the collage never flashes at the wrong shape
@@ -1326,7 +1430,7 @@ async function checkAndShowComparison() {
   refreshCollageGeometry()
 
   if (firstReveal) {
-    elements.comparisonSection.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    elements.collageContainer.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 }
 
@@ -1423,20 +1527,15 @@ function orientationName(meta) {
 // fixed order, so the very first tap always produces a visible change. From
 // auto we jump straight to the opposite layout; from there the only remaining
 // stop is auto again.
-function nextLayoutMode() {
-  if (state.layoutMode === 'auto') {
-    return state.resolvedLayout === 'horizontal' ? 'vertical' : 'horizontal'
-  }
-  const other = state.layoutMode === 'horizontal' ? 'vertical' : 'horizontal'
-  return other === computeSmartLayout() ? 'auto' : other
-}
-
-function toggleLayout() {
-  state.layoutMode = nextLayoutMode()
+// The layout control is a three-way switch rather than a cycling button, so the
+// current mode is always readable and any option is one tap away.
+function setLayoutMode(mode) {
+  if (state.layoutMode === mode) return
+  state.layoutMode = mode
   applyLayout()
-
-  const name = LAYOUT_NAMES[state.resolvedLayout]
-  showToast(state.layoutMode === 'auto' ? 'Auto layout: ' + name : name)
+  showToast(mode === 'auto'
+    ? `Auto layout: ${LAYOUT_NAMES[state.resolvedLayout]}`
+    : LAYOUT_NAMES[state.resolvedLayout])
 }
 
 function applyLayout() {
@@ -1465,32 +1564,33 @@ function applyLayout() {
 }
 
 function updateLayoutUI() {
-  if (!elements.layoutBtn) return
-
   const resolved = state.resolvedLayout
   const isAuto = state.layoutMode === 'auto'
   const name = LAYOUT_NAMES[resolved]
 
-  elements.layoutBtnIcon.innerHTML = LAYOUT_ICONS[resolved]
-  elements.layoutBtnLabel.textContent = isAuto ? 'Auto' : name
+  elements.layoutButtons.forEach(btn => {
+    btn.setAttribute('aria-pressed', String(btn.dataset.mode === state.layoutMode))
+  })
 
-  const next = nextLayoutMode()
-  const nextName = next === 'auto' ? 'automatic' : LAYOUT_NAMES[next].toLowerCase()
-  const description = 'Layout: ' + name + (isAuto ? ' (auto)' : '') + '. Tap to switch to ' + nextName + '.'
-  elements.layoutBtn.title = description
-  elements.layoutBtn.setAttribute('aria-label', description)
+  const ready = Boolean(state.beforeMeta && state.afterMeta)
 
-  if (elements.layoutStatus) {
-    if (!state.beforeMeta || !state.afterMeta) {
-      elements.layoutStatus.textContent = ''
+  if (elements.layoutHint) {
+    if (!ready) {
+      elements.layoutHint.textContent = 'Auto picks the shape that frames both photos best.'
     } else if (isAuto) {
       const before = orientationName(state.beforeMeta)
       const after = orientationName(state.afterMeta)
-      const shape = before === after ? before + ' photos' : 'mixed orientations'
-      elements.layoutStatus.innerHTML = '<strong>' + name + '</strong> &middot; auto-picked for ' + shape
+      const shape = before === after ? `${before} photos` : 'photos of different shapes'
+      elements.layoutHint.innerHTML = `<strong>${name}</strong> suits ${shape}.`
     } else {
-      elements.layoutStatus.innerHTML = '<strong>' + name + '</strong> &middot; set manually'
+      elements.layoutHint.innerHTML = `<strong>${name}</strong>, chosen by you.`
     }
+  }
+
+  if (elements.layoutStatus) {
+    elements.layoutStatus.innerHTML = ready
+      ? `<strong>${name}</strong> <em>&middot; ${isAuto ? 'auto' : 'manual'}</em>`
+      : ''
   }
 }
 
