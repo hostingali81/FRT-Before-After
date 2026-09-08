@@ -5,6 +5,18 @@
 
 import './style.css'
 
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024
+const MAX_EXPORT_PIXELS = 16_000_000
+const MAX_EXPORT_SIDE = 8_192
+
+function createEdits() {
+  return {
+    arrows: [],
+    filters: { brightness: 100, contrast: 100, saturate: 100 },
+    badge: { x: 0.5, y: 0.9 }
+  }
+}
+
 // ============================================
 // STATE MANAGEMENT
 // ============================================
@@ -30,16 +42,8 @@ const state = {
   },
 
   edits: {
-    before: {
-      arrows: [], // { start: {x,y}, end: {x,y}, color, size }
-      filters: { brightness: 100, contrast: 100, saturate: 100 },
-      badge: { x: 0.5, y: 0.9 } // Normalized position (0-1)
-    },
-    after: {
-      arrows: [],
-      filters: { brightness: 100, contrast: 100, saturate: 100 },
-      badge: { x: 0.5, y: 0.9 }
-    }
+    before: createEdits(),
+    after: createEdits()
   }
 }
 
@@ -81,8 +85,6 @@ const elements = {
   brightnessSlider: null,
   contrastSlider: null,
   saturateSlider: null,
-  brightnessVal: null,
-  contrastVal: null,
   brightnessVal: null,
   contrastVal: null,
   saturateVal: null,
@@ -226,8 +228,14 @@ function renderHTML() {
   elements.app.innerHTML = `
     <!-- Header -->
     <header class="header">
-      <h1 class="header__title">FRT Before After Comparison</h1>
-      <button id="install-btn" class="btn btn--sm btn--primary" style="display: none; margin-left: auto;">⬇️ Install App</button>
+      <div class="header__brand">
+        <img class="header__logo" src="${import.meta.env.BASE_URL}logo.png" alt="" width="44" height="44" />
+        <div class="header__text">
+          <h1 class="header__title">Before &amp; After</h1>
+          <p class="header__subtitle">Professional image comparison</p>
+        </div>
+      </div>
+      <button id="install-btn" class="btn btn--sm btn--primary" style="display: none;">⬇️ Install App</button>
     </header>
 
     <!-- Upload Section -->
@@ -235,24 +243,26 @@ function renderHTML() {
       <!-- Before Upload -->
       <div class="card upload-card">
         <label class="upload-label"><span class="badge badge--before">Before</span></label>
-        <div class="upload-area" id="before-upload-area">
+        <div class="upload-area" id="before-upload-area" role="button" tabindex="0" aria-label="Upload before image">
           <svg class="upload-icon" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
           <p class="upload-text">Upload Before</p>
           <p class="upload-hint">Click or drag image</p>
           <input type="file" id="before-input" class="upload-input" accept="image/*" />
           <img id="before-preview" class="upload-preview" />
+          <span class="upload-change-overlay"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>Change photo</span>
         </div>
       </div>
 
       <!-- After Upload -->
       <div class="card upload-card">
         <label class="upload-label"><span class="badge badge--after">After</span></label>
-        <div class="upload-area" id="after-upload-area">
+        <div class="upload-area" id="after-upload-area" role="button" tabindex="0" aria-label="Upload after image">
           <svg class="upload-icon" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
           <p class="upload-text">Upload After</p>
           <p class="upload-hint">Click or drag image</p>
           <input type="file" id="after-input" class="upload-input" accept="image/*" />
           <img id="after-preview" class="upload-preview" />
+          <span class="upload-change-overlay"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>Change photo</span>
         </div>
       </div>
     </section>
@@ -262,11 +272,11 @@ function renderHTML() {
       
       <!-- Toolbar -->
       <div class="editing-toolbar">
-        <button class="tool-btn" id="tool-arrow">
+        <button type="button" class="tool-btn" id="tool-arrow" aria-pressed="false">
           <svg class="tool-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline></svg>
           <span class="tool-label">Arrows</span>
         </button>
-        <button class="tool-btn" id="tool-filter">
+        <button type="button" class="tool-btn" id="tool-filter" aria-pressed="false">
           <svg class="tool-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6m5.2-13.2l-4.2 4.2m0 6l4.2 4.2M23 12h-6m-6 0H1m18.2-5.2l-4.2 4.2m0 6l4.2 4.2"></path></svg>
           <span class="tool-label">Filters</span>
         </button>
@@ -275,23 +285,23 @@ function renderHTML() {
       <!-- Arrow Options Panel -->
       <div class="tool-options" id="arrow-options">
          <div class="options-row">
-            <button class="btn btn--sm btn--primary" id="btn-add-arrow">➕ Add Arrow</button>
-            <button class="btn btn--sm btn--danger" id="btn-delete-arrow" disabled>🗑️ Delete</button>
+            <button type="button" class="btn btn--sm btn--primary" id="btn-add-arrow">➕ Add Arrow</button>
+            <button type="button" class="btn btn--sm btn--danger" id="btn-delete-arrow" disabled>🗑️ Delete</button>
          </div>
          <div class="options-row">
             <div class="color-picker" id="color-picker">
-              <div class="color-btn active" style="background: #dc2626" data-color="#dc2626"></div>
-              <div class="color-btn" style="background: #2563eb" data-color="#2563eb"></div>
-              <div class="color-btn" style="background: #16a34a" data-color="#16a34a"></div>
-              <div class="color-btn" style="background: #eab308" data-color="#eab308"></div>
-              <div class="color-btn" style="background: #ffffff" data-color="#ffffff"></div>
-              <div class="color-btn" style="background: #000000" data-color="#000000"></div>
+              <button type="button" class="color-btn active" style="background: #dc2626" data-color="#dc2626" aria-label="Red arrow" aria-pressed="true"></button>
+              <button type="button" class="color-btn" style="background: #2563eb" data-color="#2563eb" aria-label="Blue arrow" aria-pressed="false"></button>
+              <button type="button" class="color-btn" style="background: #16a34a" data-color="#16a34a" aria-label="Green arrow" aria-pressed="false"></button>
+              <button type="button" class="color-btn" style="background: #eab308" data-color="#eab308" aria-label="Yellow arrow" aria-pressed="false"></button>
+              <button type="button" class="color-btn" style="background: #ffffff" data-color="#ffffff" aria-label="White arrow" aria-pressed="false"></button>
+              <button type="button" class="color-btn" style="background: #000000" data-color="#000000" aria-label="Black arrow" aria-pressed="false"></button>
            </div>
            <div class="size-control">
               <span class="size-label">Size</span>
-              <button class="btn-size" id="btn-size-minus">-</button>
+              <button type="button" class="btn-size" id="btn-size-minus" aria-label="Decrease arrow size">-</button>
               <input type="range" id="arrow-size" min="5" max="35" value="20">
-              <button class="btn-size" id="btn-size-plus">+</button>
+              <button type="button" class="btn-size" id="btn-size-plus" aria-label="Increase arrow size">+</button>
            </div>
          </div>
          <div class="tool-hint">Select a side (Before/After) then click Add Arrow. Drag blue handles to adjust.</div>
@@ -312,7 +322,7 @@ function renderHTML() {
           <label>Saturation <span id="saturate-val">100%</span></label>
           <input type="range" class="filter-slider" id="saturate-slider" min="0" max="200" value="100">
         </div>
-        <button class="btn btn--sm btn--secondary reset-filter-btn" id="btn-reset-filters">↺ Reset Filters</button>
+        <button type="button" class="btn btn--sm btn--secondary reset-filter-btn" id="btn-reset-filters">↺ Reset Filters</button>
       </div>
 
       <!-- Main Canvas Area -->
@@ -321,15 +331,15 @@ function renderHTML() {
           <!-- Before Side -->
           <div class="collage-side" id="side-before" data-side="before">
             <img id="comparison-before" class="collage-image" />
-            <canvas id="canvas-before" class="drawing-canvas"></canvas>
-            <span class="collage-badge">before</span>
+            <canvas id="canvas-before" class="drawing-canvas" aria-label="Before image arrow editor"></canvas>
+            <span class="collage-badge collage-badge--before">before</span>
           </div>
           
           <!-- After Side -->
           <div class="collage-side" id="side-after" data-side="after">
             <img id="comparison-after" class="collage-image" />
-            <canvas id="canvas-after" class="drawing-canvas"></canvas>
-            <span class="collage-badge">after</span>
+            <canvas id="canvas-after" class="drawing-canvas" aria-label="After image arrow editor"></canvas>
+            <span class="collage-badge collage-badge--after">after</span>
           </div>
         </div>
 
@@ -383,7 +393,6 @@ function cacheElements() {
   elements.downloadBtn = document.getElementById('download-btn')
   elements.editingToolbar = document.querySelector('.editing-toolbar')
   elements.controls = document.querySelector('.controls')
-  elements.app = document.getElementById('app') // Ensure app is cached too if not already (it serves as container for class)
 
   // Tools
   elements.toolArrow = document.getElementById('tool-arrow')
@@ -423,6 +432,8 @@ function attachEventListeners() {
   elements.afterUploadArea.addEventListener('click', () => elements.afterInput.click())
   elements.beforeInput.addEventListener('change', (e) => handleImageUpload(e, 'before'))
   elements.afterInput.addEventListener('change', (e) => handleImageUpload(e, 'after'))
+  setupUploadArea(elements.beforeUploadArea, 'before')
+  setupUploadArea(elements.afterUploadArea, 'after')
 
   // Controls
   elements.swapBtn.addEventListener('click', swapImages)
@@ -463,16 +474,18 @@ function attachEventListeners() {
     updateSelectedArrow()
   })
 
-  let val = parseInt(elements.arrowSize.value)
-  val = Math.min(35, val + 1)
-  elements.arrowSize.value = val
-  state.arrowSettings.size = val
-  updateSelectedArrow()
+  elements.btnSizePlus.addEventListener('click', () => {
+    const val = Math.min(35, parseInt(elements.arrowSize.value) + 1)
+    elements.arrowSize.value = val
+    state.arrowSettings.size = val
+    updateSelectedArrow()
+  })
 
   elements.colorBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       elements.colorBtns.forEach(b => b.classList.remove('active'))
       btn.classList.add('active')
+      elements.colorBtns.forEach(b => b.setAttribute('aria-pressed', String(b === btn)))
       state.arrowSettings.color = btn.dataset.color
       updateSelectedArrow()
     })
@@ -501,22 +514,45 @@ function attachEventListeners() {
   setupBadgeDrag(elements.badgeBefore, 'before')
   setupBadgeDrag(elements.badgeAfter, 'after')
 }
+
+function setupUploadArea(area, side) {
+  area.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      ;(side === 'before' ? elements.beforeInput : elements.afterInput).click()
+    }
+  })
+
+  ;['dragenter', 'dragover'].forEach(eventName => {
+    area.addEventListener(eventName, (event) => {
+      event.preventDefault()
+      area.classList.add('is-dragging')
+    })
+  })
+
+  ;['dragleave', 'drop'].forEach(eventName => {
+    area.addEventListener(eventName, (event) => {
+      event.preventDefault()
+      area.classList.remove('is-dragging')
+    })
+  })
+
+  area.addEventListener('drop', (event) => {
+    const file = event.dataTransfer?.files?.[0]
+    if (file) processImageFile(file, side)
+  })
+}
 function updateBadgePositions() {
-  // Sync UI Badges with State (useful on resize)
   const setPos = (el, pos, container) => {
-    const w = container.clientWidth
-    const h = container.clientHeight
-    el.style.left = (pos.x * w) + 'px'
-    el.style.top = (pos.y * h) + 'px'
-    el.style.bottom = 'auto' // Override default CSS
-    el.style.transform = 'translate(-50%, -50%)' // Center anchor
+    if (!container.clientWidth || !container.clientHeight) return
+    el.style.left = `${pos.x * 100}%`
+    el.style.top = `${pos.y * 100}%`
+    el.style.bottom = 'auto'
+    el.style.transform = 'translate(-50%, -50%)'
   }
 
-  // Only update if state is set (initially might rely on CSS)
-  // But better to initialize state to CSS default or force one.
-  // Let's force initialized position on first drag or load?
-  // Actually, let's keep CSS default until dragged.
-  // Check if we have touched logic yet
+  setPos(elements.badgeBefore, state.edits.before.badge, elements.sideBefore)
+  setPos(elements.badgeAfter, state.edits.after.badge, elements.sideAfter)
 }
 
 function setupBadgeDrag(el, side) {
@@ -587,6 +623,8 @@ function toggleTool(tool) {
     state.activeTool = null
     elements.toolArrow.classList.remove('active')
     elements.toolFilter.classList.remove('active')
+    elements.toolArrow.setAttribute('aria-pressed', 'false')
+    elements.toolFilter.setAttribute('aria-pressed', 'false')
     elements.arrowOptions.classList.remove('active')
     elements.filterControls.classList.remove('active')
     document.body.classList.remove('arrow-mode', 'filter-mode')
@@ -594,6 +632,8 @@ function toggleTool(tool) {
     state.activeTool = tool
     elements.toolArrow.classList.toggle('active', tool === 'arrow')
     elements.toolFilter.classList.toggle('active', tool === 'filter')
+    elements.toolArrow.setAttribute('aria-pressed', String(tool === 'arrow'))
+    elements.toolFilter.setAttribute('aria-pressed', String(tool === 'filter'))
     elements.arrowOptions.classList.toggle('active', tool === 'arrow')
     elements.filterControls.classList.toggle('active', tool === 'filter')
 
@@ -610,6 +650,7 @@ function toggleTool(tool) {
     // Refresh selections/ui
     selectSide(state.activeSide)
   }
+  redrawAll()
 }
 
 function handleSideClick(e, side) {
@@ -639,30 +680,15 @@ function selectSide(side) {
 function addArrow() {
   if (!elements.comparisonSection.classList.contains('active')) return
 
-  // Calculate proportional size (relative to Image, not canvas)
-  // Store normalized coordinates (0-1) relative to the IMAGE CONTENT rect
-  const rectB = getRenderedRect(elements.canvasBefore, elements.comparisonImageBefore)
-  const rectA = getRenderedRect(elements.canvasAfter, elements.comparisonImageAfter)
-
   // Default positions (approx 30% to 70%)
-  const arrowBefore = {
+  const arrow = {
     start: { x: 0.3, y: 0.7 },
     end: { x: 0.7, y: 0.3 },
     color: state.arrowSettings.color,
     size: state.arrowSettings.size // Size remains "abstract" or pixel based? Let's keep size as simple unit, but scale drawing
   }
-  state.edits.before.arrows.push(arrowBefore)
-
-  const arrowAfter = {
-    start: { x: 0.3, y: 0.7 },
-    end: { x: 0.7, y: 0.3 },
-    color: state.arrowSettings.color,
-    size: state.arrowSettings.size
-  }
-  state.edits.after.arrows.push(arrowAfter)
-
-  // Select the arrow on the ACTIVE side so user can see handles immediately
   const side = state.activeSide
+  state.edits[side].arrows.push(arrow)
   state.interaction.selectedArrowIndex = state.edits[side].arrows.length - 1
 
   redrawAll()
@@ -831,8 +857,8 @@ function setupCanvasInteraction(canvas, side) {
 
     // Convert current mouse pos to normalized
     const toNorm = (px) => ({
-      x: (px.x - rect.x) / rect.w,
-      y: (px.y - rect.y) / rect.h
+      x: Math.max(0, Math.min(1, (px.x - rect.x) / rect.w)),
+      y: Math.max(0, Math.min(1, (px.y - rect.y) / rect.h))
     })
 
     if (mode === 'start') {
@@ -854,8 +880,22 @@ function setupCanvasInteraction(canvas, side) {
         y: rect.y + state.interaction.initialArrow.end.y * rect.h
       }
 
-      arr.start = toNorm({ x: initStartPx.x + dxPx, y: initStartPx.y + dyPx })
-      arr.end = toNorm({ x: initEndPx.x + dxPx, y: initEndPx.y + dyPx })
+      const dx = Math.max(
+        -Math.min(state.interaction.initialArrow.start.x, state.interaction.initialArrow.end.x),
+        Math.min(1 - Math.max(state.interaction.initialArrow.start.x, state.interaction.initialArrow.end.x), dxPx / rect.w)
+      )
+      const dy = Math.max(
+        -Math.min(state.interaction.initialArrow.start.y, state.interaction.initialArrow.end.y),
+        Math.min(1 - Math.max(state.interaction.initialArrow.start.y, state.interaction.initialArrow.end.y), dyPx / rect.h)
+      )
+      arr.start = {
+        x: state.interaction.initialArrow.start.x + dx,
+        y: state.interaction.initialArrow.start.y + dy
+      }
+      arr.end = {
+        x: state.interaction.initialArrow.end.x + dx,
+        y: state.interaction.initialArrow.end.y + dy
+      }
     }
 
     redrawAll()
@@ -919,6 +959,7 @@ function getRenderedRect(canvas, img) {
   // Calculates where the image is actually drawn on the canvas (object-fit: contain)
   const cw = canvas.width
   const ch = canvas.height
+  if (!cw || !ch) return { x: 0, y: 0, w: 0, h: 0 }
   // Handle if img not loaded yet?
   const iw = img.naturalWidth || 1000
   const ih = img.naturalHeight || 1000
@@ -1059,8 +1100,8 @@ function drawArrow(ctx, arrow, isSelected) {
   // Reset Shadow for handles
   ctx.shadowBlur = 0
 
-  // Draw Handles if selected AND NOT DRAGGING
-  if (isSelected && !state.interaction.isDragging) {
+  // Draw Handles if selected AND NOT DRAGGING AND arrow tool is active
+  if (isSelected && !state.interaction.isDragging && state.activeTool === 'arrow') {
     drawHandle(ctx, start) // Tail
     drawHandle(ctx, end)   // Head
   }
@@ -1078,9 +1119,9 @@ function drawHandle(ctx, pos) {
 
 function resizeCanvas(canvas) {
   const rect = canvas.parentElement.getBoundingClientRect()
-  canvas.width = rect.width
-  canvas.height = rect.height
-  // Does NOT clear logical arrows, just display buffer
+  const dpr = window.devicePixelRatio || 1
+  canvas.width = Math.max(1, Math.round(rect.width * dpr))
+  canvas.height = Math.max(1, Math.round(rect.height * dpr))
 }
 
 
@@ -1131,11 +1172,29 @@ function resetCurrentFilters() {
 // ============================================
 function handleImageUpload(event, type) {
   const file = event.target.files[0]
-  if (!file) return
+  event.target.value = ''
+  if (file) processImageFile(file, type)
+}
 
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    const imageUrl = e.target.result
+async function processImageFile(file, type) {
+  if (!file.type.startsWith('image/')) {
+    alert('Please choose an image file.')
+    return
+  }
+
+  if (file.size > MAX_IMAGE_BYTES) {
+    alert('Please choose an image smaller than 20 MB.')
+    return
+  }
+
+  try {
+    const imageUrl = await readImageFile(file)
+    await loadImage(imageUrl)
+
+    state.edits[type] = createEdits()
+    state.interaction.selectedArrowIndex = -1
+    applyCSSFilters()
+
     if (type === 'before') {
       state.beforeImage = imageUrl
       elements.beforePreview.src = imageUrl
@@ -1148,30 +1207,64 @@ function handleImageUpload(event, type) {
       elements.afterUploadArea.classList.add('has-image') // Trigger CSS state
     }
 
-    // We check for comparison mode, but we don't hide the upload preview anymore until then?
-    // Actually the upload preview sits in the upload box. The comparison mode is separate.
-    checkAndShowComparison()
+    await checkAndShowComparison()
+  } catch (error) {
+    console.error('Image upload failed:', error)
+    alert('This image could not be loaded. Please choose a valid image file.')
   }
-  reader.readAsDataURL(file)
 }
 
-function checkAndShowComparison() {
+function readImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(reader.error || new Error('Could not read file'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('Could not decode image'))
+    image.src = src
+  })
+}
+
+async function waitForImageElement(image) {
+  if (image.complete && image.naturalWidth) {
+    if (image.decode) await image.decode().catch(() => {})
+    return
+  }
+  await new Promise((resolve, reject) => {
+    image.addEventListener('load', resolve, { once: true })
+    image.addEventListener('error', () => reject(new Error('Could not display image')), { once: true })
+  })
+}
+
+async function checkAndShowComparison() {
   if (state.beforeImage && state.afterImage) {
     elements.comparisonImageBefore.src = state.beforeImage
     elements.comparisonImageAfter.src = state.afterImage
-    elements.comparisonImageAfter.src = state.afterImage
     elements.comparisonSection.classList.add('active')
 
-    // Reveal all UI
+    // Reveal all UI, collapse the upload zones into a compact re-select bar
     elements.app.classList.add('reveal-ui')
+    elements.app.classList.add('images-ready')
 
-    setTimeout(() => {
-      resizeCanvas(elements.canvasBefore)
-      resizeCanvas(elements.canvasAfter)
-      selectSide('after')
-      updateBadgeSize() // Initial scale
-      elements.comparisonSection.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 200)
+    await Promise.all([
+      waitForImageElement(elements.comparisonImageBefore),
+      waitForImageElement(elements.comparisonImageAfter)
+    ])
+
+    resizeCanvas(elements.canvasBefore)
+    resizeCanvas(elements.canvasAfter)
+    selectSide('after')
+    updateBadgePositions()
+    updateBadgeSize()
+    redrawAll()
+    elements.comparisonSection.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 }
 
@@ -1179,7 +1272,9 @@ function toggleLayout() {
   state.layoutMode = state.layoutMode === 'horizontal' ? 'vertical' : 'horizontal'
   const isVertical = state.layoutMode === 'vertical'
 
-  document.getElementById('collage-container').classList.toggle('layout-vertical', isVertical)
+  const container = document.getElementById('collage-container')
+  container.classList.toggle('layout-vertical', isVertical)
+  container.classList.toggle('layout-horizontal', !isVertical)
   elements.layoutBtn.innerHTML = isVertical ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="3" x2="12" y2="21"></line></svg> Layout' : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="12" x2="21" y2="12"></line></svg> Layout'
 
   // Re-measure canvas after layout change
@@ -1240,8 +1335,12 @@ function swapImages() {
   // Apply
   elements.comparisonImageBefore.src = state.beforeImage
   elements.comparisonImageAfter.src = state.afterImage
+  elements.beforePreview.src = state.beforeImage
+  elements.afterPreview.src = state.afterImage
+  state.interaction.selectedArrowIndex = -1
   applyCSSFilters()
   redrawAll()
+  updateDeleteBtn()
 }
 
 function resetApp() {
@@ -1250,15 +1349,13 @@ function resetApp() {
 
 // Generate Blob Helper
 async function generateComparisonBlob() {
+  if (!state.beforeImage || !state.afterImage) {
+    throw new Error('Upload both images before exporting.')
+  }
+
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
-  const beforeImg = new Image(); beforeImg.src = state.beforeImage
-  const afterImg = new Image(); afterImg.src = state.afterImage
-
-  await Promise.all([
-    new Promise(r => beforeImg.onload = r),
-    new Promise(r => afterImg.onload = r)
-  ])
+  const [beforeImg, afterImg] = await Promise.all([loadImage(state.beforeImage), loadImage(state.afterImage)])
 
   const isVertical = state.layoutMode === 'vertical'
   const gap = 40
@@ -1302,8 +1399,22 @@ async function generateComparisonBlob() {
     yA = border
   }
 
-  canvas.width = canvasW
-  canvas.height = canvasH
+  const exportScale = Math.min(
+    1,
+    Math.sqrt(MAX_EXPORT_PIXELS / (canvasW * canvasH)),
+    MAX_EXPORT_SIDE / Math.max(canvasW, canvasH)
+  )
+
+  if (exportScale < 1) {
+    wB *= exportScale; hB *= exportScale
+    wA *= exportScale; hA *= exportScale
+    xB *= exportScale; yB *= exportScale
+    xA *= exportScale; yA *= exportScale
+    canvasW *= exportScale; canvasH *= exportScale
+  }
+
+  canvas.width = Math.round(canvasW)
+  canvas.height = Math.round(canvasH)
 
   ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height)
 
@@ -1379,11 +1490,11 @@ async function generateComparisonBlob() {
   ctx.font = `bold ${fontSize}px sans-serif`
   ctx.textAlign = 'center'
 
-  function drawBadge(text, cx, cy) {
+  function drawBadge(text, cx, cy, color) {
     const tw = ctx.measureText(text).width + 40
     const th = fontSize + 20
     const radius = Math.max(4, fontSize * 0.15) // Sharp but polished (approx 4px-8px visuals)
-    ctx.fillStyle = '#dc2626'
+    ctx.fillStyle = color
     ctx.beginPath(); ctx.roundRect(cx - tw / 2, cy - th / 2, tw, th, radius); ctx.fill()
     ctx.fillStyle = 'white'
     ctx.fillText(text, cx, cy + fontSize * 0.3)
@@ -1394,13 +1505,13 @@ async function generateComparisonBlob() {
   const bX = xB + badgePosB.x * wB
   const bY = yB + badgePosB.y * hB
 
-  drawBadge('BEFORE', bX, bY)
+  drawBadge('BEFORE', bX, bY, '#dc2626')
 
   // Draw After Badge
   const badgePosA = state.edits.after.badge
   const aX = xA + badgePosA.x * wA
   const aY = yA + badgePosA.y * hA
-  drawBadge('AFTER', aX, aY)
+  drawBadge('AFTER', aX, aY, '#16a34a')
 
   return new Promise((resolve) => {
     canvas.toBlob(blob => {
@@ -1411,22 +1522,25 @@ async function generateComparisonBlob() {
 
 // Download Handler
 async function downloadComparison() {
-  const originalText = elements.downloadBtn.innerText
-  elements.downloadBtn.innerText = '⏳ Processing...'
+  const originalContent = elements.downloadBtn.innerHTML
+  elements.downloadBtn.disabled = true
+  elements.downloadBtn.textContent = 'Processing…'
 
   try {
     const blob = await generateComparisonBlob()
+    if (!blob) throw new Error('Could not create the image file.')
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = `before-after-${Date.now()}.jpg`
     a.click()
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 0)
   } catch (e) {
     console.error(e)
     alert('Error generating image: ' + e.message)
   } finally {
-    elements.downloadBtn.innerText = originalText
+    elements.downloadBtn.innerHTML = originalContent
+    elements.downloadBtn.disabled = false
   }
 }
 
@@ -1437,12 +1551,18 @@ async function shareComparison() {
     return
   }
 
-  const originalText = elements.shareBtn.innerText
-  elements.shareBtn.innerText = '⏳...'
+  const originalContent = elements.shareBtn.innerHTML
+  elements.shareBtn.disabled = true
+  elements.shareBtn.textContent = 'Sharing…'
 
   try {
     const blob = await generateComparisonBlob()
+    if (!blob) throw new Error('Could not create the image file.')
     const file = new File([blob], 'before-after.jpg', { type: 'image/jpeg' })
+
+    if (navigator.canShare && !navigator.canShare({ files: [file] })) {
+      throw new Error('This browser cannot share image files.')
+    }
 
     await navigator.share({
       files: [file]
@@ -1453,7 +1573,8 @@ async function shareComparison() {
       alert('Share failed: ' + err.message)
     }
   } finally {
-    elements.shareBtn.innerText = originalText
+    elements.shareBtn.innerHTML = originalContent
+    elements.shareBtn.disabled = false
   }
 }
 
@@ -1476,7 +1597,7 @@ if ('serviceWorker' in navigator) {
   });
 
   // Register service worker
-  navigator.serviceWorker.register('/sw.js')
+  navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL })
     .then(registration => {
       console.log('[PWA] Service Worker registered successfully');
       console.log('[PWA] ✅ App is now available OFFLINE!');

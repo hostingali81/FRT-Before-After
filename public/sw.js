@@ -3,9 +3,14 @@
 // Auto-update with version control
 // ============================================
 
-const VERSION = '1.0.1';
+const VERSION = '1.0.3';
 const CACHE_NAME = `before-after-v${VERSION}`;
 const RUNTIME_CACHE = `runtime-${VERSION}`;
+const APP_BASE = new URL(self.registration.scope).pathname.replace(/\/$/, '');
+const appUrl = (path = '') => `${APP_BASE}/${path}`.replace(/\/+/g, '/');
+const APP_SHELL_URL = appUrl();
+const OFFLINE_URL = appUrl('offline.html');
+const PRECACHE_URLS = [APP_SHELL_URL, OFFLINE_URL, appUrl('manifest.json'), appUrl('logo.png'), appUrl('icon-192.png'), appUrl('icon-512.png')];
 
 // Install: Cache on first load
 self.addEventListener('install', (event) => {
@@ -14,9 +19,8 @@ self.addEventListener('install', (event) => {
         caches.open(CACHE_NAME)
             .then(cache => {
                 console.log('[SW] Service Worker installed, will cache on first use');
-                return cache.addAll(['/']);
+                return cache.addAll(PRECACHE_URLS);
             })
-            .then(() => self.skipWaiting())
     );
 });
 
@@ -49,6 +53,22 @@ self.addEventListener('fetch', (event) => {
 
     // Skip chrome-extension and other protocols
     if (!url.protocol.startsWith('http')) return;
+
+    // Always refresh navigations while online. This lets a new Vite bundle deploy
+    // without requiring a manual service-worker version bump.
+    if (request.mode === 'navigate') {
+        event.respondWith(
+            fetch(request)
+                .then(response => {
+                    if (response.ok) {
+                        caches.open(CACHE_NAME).then(cache => cache.put(APP_SHELL_URL, response.clone()));
+                    }
+                    return response;
+                })
+                .catch(() => caches.match(APP_SHELL_URL).then(cached => cached || caches.match(OFFLINE_URL)))
+        );
+        return;
+    }
 
     // Handle external requests (fonts, etc)
     if (url.origin !== location.origin) {
@@ -103,7 +123,7 @@ self.addEventListener('fetch', (event) => {
                         console.error('[SW] Fetch failed:', error);
                         // Return offline page for navigation requests
                         if (request.mode === 'navigate') {
-                            return caches.match('/offline.html');
+                            return caches.match(OFFLINE_URL);
                         }
                         throw error;
                     });

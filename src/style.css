@@ -65,16 +65,46 @@ body {
 
 /* Header */
 .header {
-  text-align: center;
-  padding: 2rem 0 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0 1.25rem;
+}
+
+.header__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.header__logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.header__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .header__title {
-  font-size: 1.75rem;
-  font-weight: 600;
-  color: #1e3a8a;
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--slate-900);
   letter-spacing: -0.01em;
-  margin-bottom: 0.5rem;
+  line-height: 1.2;
+}
+
+.header__subtitle {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-muted);
 }
 
 /* Cards */
@@ -91,18 +121,17 @@ body {
   display: flex;
   gap: 1rem;
   flex-direction: row;
-  /* Always Row */
 }
 
 /* Mobile Adjustments */
 @media (max-width: 640px) {
   .upload-section {
     gap: 0.5rem;
-    flex-direction: row;
+    flex-direction: column;
   }
 
   .upload-card {
-    flex: 1;
+    width: 100%;
   }
 
   .upload-area {
@@ -124,8 +153,21 @@ body {
     font-size: 0.75rem;
   }
 
+  .header {
+    padding: 0.25rem 0 1rem;
+  }
+
+  .header__logo {
+    width: 36px;
+    height: 36px;
+  }
+
   .header__title {
-    font-size: 1.25rem;
+    font-size: 1.0625rem;
+  }
+
+  .header__subtitle {
+    display: none;
   }
 
   .badge {
@@ -136,6 +178,7 @@ body {
 
 .upload-card {
   flex: 1;
+  min-width: 0;
   background: var(--bg-container);
   border-radius: var(--radius-lg);
   padding: 1.5rem;
@@ -163,6 +206,21 @@ body {
 .upload-area:hover {
   border-color: #9ca3af;
   background: #ffffff;
+}
+
+.upload-area.is-dragging {
+  border-color: var(--primary);
+  background: #eef2ff;
+  transform: scale(1.01);
+}
+
+.upload-area:focus-visible,
+.color-btn:focus-visible,
+.btn-size:focus-visible,
+.tool-btn:focus-visible,
+.btn:focus-visible {
+  outline: 3px solid #93c5fd;
+  outline-offset: 3px;
 }
 
 /* Base styles for preview image inside upload area */
@@ -200,13 +258,6 @@ body {
 
 .upload-area:hover::before {
   opacity: 1;
-}
-
-/* Icon & Text Container */
-.upload-content {
-  position: relative;
-  z-index: 2;
-  transition: opacity 0.3s;
 }
 
 .upload-icon {
@@ -247,12 +298,65 @@ body {
   border-color: var(--primary);
 }
 
+/* "Change photo" affordance shown over an uploaded thumbnail */
+.upload-change-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 10px 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: white;
+  background: linear-gradient(to top, rgba(15, 23, 42, 0.65), transparent);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.upload-area.has-image:hover .upload-change-overlay,
+.upload-area.has-image:focus-visible .upload-change-overlay {
+  opacity: 1;
+}
+
+/* Once both images are uploaded, collapse the upload zones into a compact re-select bar */
+.images-ready .upload-section {
+  flex-direction: row;
+  gap: 0.75rem;
+}
+
+.images-ready .upload-card {
+  padding: 0.625rem;
+}
+
+.images-ready .upload-area {
+  min-height: 84px;
+  padding: 0;
+}
+
+.images-ready .upload-icon,
+.images-ready .upload-text,
+.images-ready .upload-hint {
+  display: none;
+}
+
+.images-ready .upload-change-overlay {
+  opacity: 1;
+}
+
+@media (min-width: 641px) {
+  .images-ready .upload-area {
+    min-height: 110px;
+  }
+}
+
 
 /* Comparison Section */
 .collage-container {
   display: flex;
   flex-direction: row;
-  /* FORCE ROW ALWAYS */
+  /* Default side-by-side; overridden to stacked on narrow screens below */
   width: 100%;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
@@ -268,6 +372,7 @@ body {
 
 .collage-side {
   flex: 1;
+  min-width: 0;
   position: relative;
   overflow: hidden;
   display: flex;
@@ -282,6 +387,59 @@ body {
 .collage-side:first-child {
   border-right: 2px solid #e2e8f0;
   /* Visible separator */
+}
+
+/* Default to a stacked layout on narrow screens so each image stays large enough
+   to place arrows accurately; explicit .layout-horizontal (via the Layout button)
+   overrides this back to side-by-side. */
+@media (max-width: 640px) {
+  .collage-container:not(.layout-horizontal) {
+    flex-direction: column;
+  }
+
+  .collage-container:not(.layout-horizontal) .collage-side {
+    flex: none;
+    width: 100%;
+    height: auto;
+  }
+
+  .collage-container:not(.layout-horizontal) .collage-side:first-child {
+    border-right: none;
+    border-bottom: 2px solid #e2e8f0;
+  }
+}
+
+/* Active-side indicator while a tool is open, so it's clear which image edits apply to */
+body.arrow-mode .collage-side.is-selected,
+body.filter-mode .collage-side.is-selected {
+  box-shadow: inset 0 0 0 3px var(--primary), 0 0 0 4px rgba(99, 102, 241, 0.15);
+}
+
+body.arrow-mode .collage-side.is-selected::before,
+body.filter-mode .collage-side.is-selected::before {
+  content: 'Editing';
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: var(--primary);
+  color: white;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  z-index: 100;
+}
+
+body:not(.arrow-mode):not(.filter-mode) .collage-side {
+  cursor: default;
+}
+
+body.arrow-mode .collage-side,
+body.filter-mode .collage-side {
+  cursor: pointer;
 }
 
 .collage-image {
@@ -320,6 +478,10 @@ body {
   cursor: grabbing;
 }
 
+.collage-badge--after {
+  background: #16a34a;
+}
+
 /* Vertical Layout Mode */
 .collage-container.layout-vertical {
   flex-direction: column !important;
@@ -338,6 +500,22 @@ body {
 .collage-container.layout-vertical .collage-side:first-child {
   border-right: none;
   border-bottom: 2px solid #e2e8f0;
+}
+
+/* Explicit override to force side-by-side even on narrow screens */
+.collage-container.layout-horizontal {
+  flex-direction: row !important;
+}
+
+.collage-container.layout-horizontal .collage-side {
+  flex: 1 !important;
+  width: auto !important;
+  height: auto !important;
+}
+
+.collage-container.layout-horizontal .collage-side:first-child {
+  border-right: 2px solid #e2e8f0 !important;
+  border-bottom: none !important;
 }
 
 /* Canvas Overlay */
@@ -697,7 +875,11 @@ body.arrow-mode .drawing-canvas {
   border-radius: 10px;
   -webkit-appearance: none;
   appearance: none;
-  outline: none;
+}
+
+.filter-slider:focus-visible {
+  outline: 3px solid #93c5fd;
+  outline-offset: 3px;
 }
 
 .filter-slider::-webkit-slider-thumb {
@@ -772,11 +954,7 @@ body.arrow-mode .drawing-canvas {
   }
 
   .header__title {
-    font-size: 3rem;
-  }
-
-  .comparison-viewer {
-    aspect-ratio: 16/9;
+    font-size: 1.75rem;
   }
 }
 
@@ -792,6 +970,7 @@ body.arrow-mode .drawing-canvas {
   font-size: 1.125rem;
   font-weight: 700;
   cursor: pointer;
+  padding: 0;
   transition: all 0.25s;
   display: inline-flex;
   align-items: center;
