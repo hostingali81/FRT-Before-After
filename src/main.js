@@ -230,12 +230,14 @@ function uploadSlot(side, label) {
   return `
     <div class="slot slot--${side}" id="${side}-upload-area" role="button" tabindex="0"
          aria-label="Choose the ${label.toLowerCase()} photo">
-      <span class="slot__tag">${label}</span>
       <span class="slot__thumb">
         ${ICON.photo}
         <img id="${side}-preview" alt="" />
       </span>
-      <span class="slot__action"></span>
+      <span class="slot__meta">
+        <span class="slot__tag">${label}</span>
+        <span class="slot__action"></span>
+      </span>
       <input type="file" id="${side}-input" class="upload-input" accept="image/*" />
     </div>`
 }
@@ -296,39 +298,32 @@ function renderHTML() {
         <!-- ------------------------------------------------------ inspector -->
         <aside class="inspector">
           <section class="panel" data-requires-images hidden>
-            <div class="panel__head"><h2 class="panel__title">Photos</h2></div>
-            <div class="panel__body">
-              <div class="slots">
-                ${uploadSlot('before', 'Before')}
-                ${uploadSlot('after', 'After')}
-              </div>
-            </div>
-          </section>
-
-          <section class="panel" data-requires-images hidden>
             <div class="panel__head"><h2 class="panel__title">Layout</h2></div>
             <div class="panel__body">
               <div class="segmented" id="layout-switch" role="group" aria-label="Collage layout">
                 <button type="button" class="segmented__item" data-mode="auto" aria-pressed="true">
-                  ${ICON.wand}<span>Auto</span>
+                  <span>Auto</span>
                 </button>
                 <button type="button" class="segmented__item" data-mode="horizontal" aria-pressed="false">
-                  ${LAYOUT_ICONS.horizontal}<span>Side</span>
+                  <span>Side by side</span>
                 </button>
                 <button type="button" class="segmented__item" data-mode="vertical" aria-pressed="false">
-                  ${LAYOUT_ICONS.vertical}<span>Stack</span>
+                  <span>Top &amp; bottom</span>
                 </button>
               </div>
               <p class="panel__hint" id="layout-hint"></p>
             </div>
           </section>
 
-          <section class="panel" data-requires-images hidden>
+          <section class="panel" id="edit-panel" data-requires-images hidden>
             <div class="panel__head"><h2 class="panel__title">Edit</h2></div>
             <div class="panel__body">
-              <div class="segmented" id="side-switch" role="group" aria-label="Photo to edit">
-                <button type="button" class="segmented__item" data-side="before" aria-pressed="false">Before</button>
-                <button type="button" class="segmented__item" data-side="after" aria-pressed="true">After</button>
+              <div class="field field--inline">
+                <span class="field__label">Apply edits to</span>
+                <div class="segmented" id="side-switch" role="group" aria-label="Photo to edit">
+                  <button type="button" class="segmented__item" data-side="before" aria-pressed="false">Before</button>
+                  <button type="button" class="segmented__item" data-side="after" aria-pressed="true">After</button>
+                </div>
               </div>
 
               <div class="segmented" role="group" aria-label="Tool">
@@ -336,7 +331,7 @@ function renderHTML() {
                   ${ICON.arrow}<span>Arrows</span>
                 </button>
                 <button type="button" class="segmented__item" id="tool-filter" aria-pressed="false">
-                  ${ICON.sliders}<span>Adjust</span>
+                  ${ICON.sliders}<span>Filters</span>
                 </button>
               </div>
 
@@ -351,7 +346,7 @@ function renderHTML() {
                   </button>
                 </div>
 
-                <div class="field">
+                <div class="field field--inline">
                   <span class="field__label">Colour</span>
                   <div class="color-picker" id="color-picker">
                     <button type="button" class="color-btn active" style="background:#dc2626" data-color="#dc2626" aria-label="Red" aria-pressed="true"></button>
@@ -372,7 +367,7 @@ function renderHTML() {
                   </div>
                 </div>
 
-                <p class="panel__hint">Drag the arrow body to move it, or the round handles to re-aim. Pinch to resize on touch.</p>
+                <p class="panel__hint">Drag the body to move it, the round handles to re-aim.</p>
               </div>
 
               <!-- Adjust -->
@@ -390,8 +385,18 @@ function renderHTML() {
                   <input type="range" class="slider" id="saturate-slider" min="0" max="200" value="100" />
                 </div>
                 <button type="button" class="btn btn--ghost btn--sm btn--block" id="btn-reset-filters">
-                  ${ICON.reset}Reset adjustments
+                  ${ICON.reset}Reset filters
                 </button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" data-requires-images hidden>
+            <div class="panel__head"><h2 class="panel__title">Photos</h2></div>
+            <div class="panel__body">
+              <div class="slots">
+                ${uploadSlot('before', 'Before')}
+                ${uploadSlot('after', 'After')}
               </div>
             </div>
           </section>
@@ -406,8 +411,8 @@ function renderHTML() {
             ${ICON.swap}<span class="btn__label">Swap</span>
           </button>
           <button type="button" class="btn btn--quiet-danger btn--utility" id="reset-btn"
-                  title="Start over" aria-label="Start over">
-            ${ICON.reset}<span class="btn__label">Reset</span>
+                  title="Start over with new photos" aria-label="Start over with new photos">
+            ${ICON.reset}<span class="btn__label">Start over</span>
           </button>
           <span class="actionbar__spacer"></span>
           <button type="button" class="btn btn--secondary btn--export" id="share-btn">
@@ -439,6 +444,10 @@ function cacheElements() {
   elements.afterUploadArea = byId('after-upload-area')
 
   elements.collageContainer = byId('collage-container')
+  elements.stageSurface = document.querySelector('.stage__surface')
+  elements.inspector = document.querySelector('.inspector')
+  elements.workspace = document.querySelector('.workspace')
+  elements.editPanel = byId('edit-panel')
   elements.comparisonImageBefore = byId('comparison-before')
   elements.comparisonImageAfter = byId('comparison-after')
   elements.sideBefore = byId('side-before')
@@ -737,10 +746,34 @@ function toggleTool(tool) {
     }
     if (tool === 'filter') document.body.classList.add('filter-mode')
 
+    // The controls live in the scrolling column, so bring them up to meet the
+    // user rather than making them hunt below the fold.
+    requestAnimationFrame(() => revealEditPanel())
+
     // Refresh selections/ui
     selectSide(state.activeSide)
   }
   redrawAll()
+}
+
+// Scroll the control column (not the page) so the open tool is fully visible.
+function revealEditPanel() {
+  const panel = elements.editPanel
+  const scroller = elements.inspector
+  if (!panel || !scroller) return
+
+  const panelRect = panel.getBoundingClientRect()
+  const viewRect = scroller.getBoundingClientRect()
+  const overflowBelow = panelRect.bottom - viewRect.bottom
+  const overflowAbove = viewRect.top - panelRect.top
+
+  let delta = 0
+  if (overflowAbove > 0) delta = -overflowAbove
+  else if (overflowBelow > 0) delta = Math.min(overflowBelow, panelRect.top - viewRect.top)
+
+  if (Math.abs(delta) > 1) {
+    scroller.scrollBy({ top: delta, behavior: 'smooth' })
+  }
 }
 
 function handleSideClick(e, side) {
@@ -1596,9 +1629,37 @@ function updateLayoutUI() {
 
 // The single place that re-measures everything after the box model changes: the
 // white frame, the canvas backing stores, the badges and the arrows.
+// Cap the preview to the share of the workspace the stage is allowed, so the
+// controls below always keep a usable amount of room. --stage-share is 0 on
+// short viewports, where the page scrolls normally and the CSS fallback applies.
+function updatePreviewCap() {
+  const workspace = elements.workspace
+  const surface = elements.stageSurface
+  const container = elements.collageContainer
+  if (!workspace || !surface || !container) return
+
+  const share = parseFloat(getComputedStyle(workspace).getPropertyValue('--stage-share'))
+  if (!share) {
+    container.style.removeProperty('--preview-max-height')
+    return
+  }
+
+  const styles = getComputedStyle(surface)
+  const frame = parseFloat(styles.paddingTop || 0) + parseFloat(styles.paddingBottom || 0)
+  const caption = elements.layoutStatus ? elements.layoutStatus.offsetHeight : 0
+  const gap = parseFloat(getComputedStyle(elements.stageSurface.parentElement).gap || 0) || 0
+
+  const cap = workspace.clientHeight * share - frame - caption - gap
+  if (cap > 80) {
+    container.style.setProperty('--preview-max-height', `${Math.floor(cap)}px`)
+  }
+}
+
 function refreshCollageGeometry() {
   const container = elements.collageContainer
   if (!container) return
+
+  updatePreviewCap()
 
   const a1 = aspectOf(state.beforeMeta)
   const a2 = aspectOf(state.afterMeta)
@@ -1693,7 +1754,7 @@ async function swapImages() {
 }
 
 function resetApp() {
-  if (confirm("Start over?")) location.reload()
+  if (confirm('Start over and clear both photos?')) location.reload()
 }
 
 // Generate Blob Helper
